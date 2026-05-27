@@ -94,7 +94,7 @@ class Task(LightningModule):
         real_preds = self.discriminator(self.normalize(embedding.detach()))
         fake_preds_d = self.discriminator(self.normalize(synth_for_d))
         d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
-                  self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d))) / 2
+                  self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
         self.manual_backward(d_loss)
         opt_d.step()
 
@@ -104,9 +104,11 @@ class Task(LightningModule):
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
 
         if self.current_epoch >= self.pretrain_eps:
-            # Post-pretrain: add adversarial term so encoder makes synthetics look real
+            # Post-pretrain: L_G = BCE(D(e_syn), 1) + BCE(D(e), 0) per paper Eq.(2)
             fake_preds_g = self.discriminator(self.normalize(synthetic_embeddings))
-            g_loss = self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g))
+            real_preds_g = self.discriminator(self.normalize(embedding))
+            g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
+                      self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
             total_loss = (amsoftmax_loss
                           + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
                           + self.lambda_adv * g_loss)
