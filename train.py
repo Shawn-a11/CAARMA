@@ -2,8 +2,6 @@ from argparse import ArgumentParser
 from copy import deepcopy
 from typing import Any, Union
 import torch.distributed as dist
-#from pytorch_lightning.plugins import DDPPlugin
-from pytorch_lightning.strategies import DDPStrategy
 
 import random
 import torch
@@ -373,9 +371,8 @@ def cli_main():
 
     # )
     trainer = Trainer(
-        strategy=DDPStrategy(find_unused_parameters=True),
         accelerator="gpu",
-        devices=4,                    # 4卡 V100
+        devices=1,
         max_epochs=config['epochs'],
         logger=False,
         num_sanity_val_steps=0,
