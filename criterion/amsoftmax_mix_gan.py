@@ -19,7 +19,9 @@ class amsoftmax_gan(nn.Module):
         self.ce = nn.CrossEntropyLoss()
         nn.init.xavier_normal_(self.W, gain=1)
         size = self.W.shape[1]  # The size of the diagonal matrix
-        self.I = torch.diag(torch.ones(size)).to('cuda:0')
+        self.I = torch.diag(torch.ones(size))
+        if torch.cuda.is_available():
+            self.I = self.I.to('cuda:0')
 
         print('Initialised AM-Softmax m=%.3f s=%.3f'%(self.m, self.s))
         print('Embedding dim is {}, number of speakers is {}'.format(embedding_dim, num_classes))
