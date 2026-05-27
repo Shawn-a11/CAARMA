@@ -163,10 +163,11 @@ class Task(LightningModule):
             [embedding_scheduler, discriminator_scheduler]
 
     def on_train_epoch_end(self):
-        d_sch = self.lr_schedulers()
-        main_scheduler, d_scheduler = d_sch         
-        main_scheduler.step() 
-        d_scheduler.step()      
+        main_scheduler, d_scheduler = self.lr_schedulers()
+        main_scheduler.step()
+        # Only step D scheduler after D starts training to preserve lr
+        if self.current_epoch >= self.pretrain_eps:
+            d_scheduler.step()
     def on_test_epoch_start(self):
         return self.on_validation_epoch_start()
     
