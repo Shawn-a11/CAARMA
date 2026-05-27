@@ -12,7 +12,7 @@ import numpy as np
 import yaml
 
 from pytorch_lightning import LightningModule, Trainer, seed_everything
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.nn import functional as F
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import StepLR, CyclicLR
@@ -77,151 +77,60 @@ class Task(LightningModule):
         return self.lambda_adv
     
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()
-        d_sch = self.lr_schedulers()
-        optimizer_main, d_optimizer = opt
-        main_scheduler, d_scheduler = d_sch
-        
+        opt_main, opt_d = self.optimizers()
+
         waveform = batch['waveform']
         label = batch['mapped_id']
-        
-        # Get real embeddings
+
         feature = self.features(waveform)
         embedding = self.model(feature)
-        
-        # First compute AM-Softmax loss
+
+        # ── Algorithm 2, Step 1: Update Discriminator every batch ────────
+        # Use detached embeddings so D update does not affect encoder
+        with torch.no_grad():
+            _, _, synth_for_d = self.loss(embedding.detach(), label)
+
+        opt_d.zero_grad()
+        real_preds = self.discriminator(self.normalize(embedding.detach()))
+        fake_preds_d = self.discriminator(self.normalize(synth_for_d))
+        d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
+                  self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d))) / 2
+        self.manual_backward(d_loss)
+        opt_d.step()
+
+        # ── Algorithm 2, Step 2: Update Encoder (Generator) every batch ──
+        opt_main.zero_grad()
         amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
-        
-        # Initialize counters if they don't exist
-        if not hasattr(self, 'd_step_counter'):
-            self.d_step_counter = 0
-        if not hasattr(self, 'g_step_counter'):
-            self.g_step_counter = 0
-        
-        if self.d_step_counter >= 1 and self.g_step_counter >= 5:
-                self.d_step_counter = 0
-                self.g_step_counter = 0
-                print("set 0 pre-training")
-        
-        elif self.d_step_counter >= 1 and self.g_step_counter >= 1 and self.current_epoch > self.pretrain_eps:
-                self.d_step_counter = 0
-                self.g_step_counter = 0
-                print("set 0 discriminator")
+        amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
 
-
-        if self.current_epoch <= self.pretrain_eps:
-            
-            if self.g_step_counter < 5:
-                self.lambda_adv = 0.0005
-                optimizer_main.zero_grad()
-                real_preds = self.discriminator(self.normalize(embedding.detach()))
-                fake_preds = self.discriminator(self.normalize(synthetic_embeddings))
-                fake_labels = torch.zeros(real_preds.size()).to(self.device) 
-                
-                # Simple adversarial loss for generator - try to make synthetic look real
-                real_labels = torch.ones(fake_preds.size()).to(self.device) 
-                g_loss = (self.BCE_loss(fake_preds, real_labels)  + self.BCE_loss(real_preds, fake_labels))/2
-                # Reduced adversarial weight for better stability
-                amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label) #,flagSyn=True)
-                amsoftmax_syn_loss, acc_syn, synthetic_embeddings = self.loss_syn(embedding, label,flagSyn=True)
-                total_loss = amsoftmax_loss + (1/self.config['num_spk']) * amsoftmax_syn_loss + self.lambda_adv * g_loss
-                self.manual_backward(total_loss)
-                # nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-                # Logging
-                self.log('am_loss', amsoftmax_loss, prog_bar=True,sync_dist=False)
-                self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True,sync_dist=False)
-                self.log('acc', acc, prog_bar=True,sync_dist=False)
-                self.log('g_loss', g_loss, prog_bar=True,sync_dist=False)
-                self.log('total_loss', total_loss, prog_bar=True,sync_dist=False)
-                optimizer_main.step()
-                if self.trainer.global_step < self.config['warmup_step']:
-                    lr_scale = min(1., float(self.trainer.global_step + 1) / float(self.config['warmup_step']))
-                    for pg in optimizer_main.param_groups:
-                        pg['lr'] = lr_scale * self.learning_rate
-                print("gloss")
-                self.g_step_counter += 1
-                return total_loss
-            
-            elif self.d_step_counter < 1:  
-                # Train Discriminator
-                d_optimizer.zero_grad()
-                # Real samples
-                real_preds = self.discriminator(self.normalize(embedding.detach()))
-                fake_preds = self.discriminator(self.normalize(synthetic_embeddings))
-                real_labels = torch.ones(real_preds.size()).to(self.device) 
-                d_real_loss = self.BCE_loss(real_preds, real_labels)
-                
-                # Fake samples
-                fake_labels = torch.zeros(fake_preds.size()).to(self.device)
-                d_fake_loss = self.BCE_loss(fake_preds, fake_labels)
-                
-                # Simple discriminator loss
-                d_loss = (d_real_loss + d_fake_loss) / 2
-
-                self.manual_backward(d_loss)
-                self.log('d_loss', d_loss, prog_bar=True,sync_dist=False)
-                d_optimizer.step()
-                self.d_step_counter += 1
-                print("d_loss")
-                return d_loss
-        
+        if self.current_epoch >= self.pretrain_eps:
+            # Post-pretrain: add adversarial term so encoder makes synthetics look real
+            fake_preds_g = self.discriminator(self.normalize(synthetic_embeddings))
+            g_loss = self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g))
+            total_loss = (amsoftmax_loss
+                          + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
+                          + self.lambda_adv * g_loss)
         else:
-            if self.d_step_counter < 1:  
+            # Pretrain phase: encoder trained with AM-Softmax + L_syn only
+            g_loss = torch.tensor(0.0, device=self.device)
+            total_loss = (amsoftmax_loss
+                          + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss)
 
-                # Train Discriminator
-                d_optimizer.zero_grad()                
-                # Real samples
-                real_preds = self.discriminator(self.normalize(embedding.detach()))
-                fake_preds = self.discriminator(self.normalize(synthetic_embeddings))
-                real_labels = torch.ones(real_preds.size()).to(self.device) 
-                d_real_loss = self.BCE_loss(real_preds, real_labels)
-                
-                # Fake samples
-                fake_labels = torch.zeros(fake_preds.size()).to(self.device) 
-                d_fake_loss = self.BCE_loss(fake_preds, fake_labels)
-                
-                # Simple discriminator loss
-                d_loss = (d_real_loss + d_fake_loss) / 2
-                    
-                self.manual_backward(d_loss)
-                self.log('d_loss', d_loss, prog_bar=True,sync_dist=False)
-                d_optimizer.step()
-                self.d_step_counter += 1
-                print("d_loss")
-                return d_loss
+        self.manual_backward(total_loss)
+        opt_main.step()
 
-            elif self.d_step_counter >= 1 and self.g_step_counter < 1:  # Train the generator for 1 step
-                # Train Generator (Main Model) first
-                optimizer_main.zero_grad()
-                self.lambda_adv = 0.25  # Weight for adversarial loss
-                real_preds = self.discriminator(self.normalize(embedding.detach()))
-                fake_preds = self.discriminator(self.normalize(synthetic_embeddings))
-                fake_labels = torch.zeros(real_preds.size()).to(self.device) 
-                # Simple adversarial loss for generator - try to make synthetic look real
-                real_labels = torch.ones(fake_preds.size()).to(self.device)
-                g_loss = (self.BCE_loss(fake_preds, real_labels)  + self.BCE_loss(real_preds, fake_labels))/2
+        # Warmup LR
+        if self.trainer.global_step < self.config['warmup_step']:
+            lr_scale = min(1., float(self.trainer.global_step + 1) / float(self.config['warmup_step']))
+            for pg in opt_main.param_groups:
+                pg['lr'] = lr_scale * self.learning_rate
 
-                amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label) 
-                amsoftmax_syn_loss, acc_syn, synthetic_embeddings = self.loss_syn(embedding, label,flagSyn=True)
-                self.lambda_adv = self.adjust_weight(amsoftmax_loss,g_loss)
-                # Reduced adversarial weight for better stability
-                total_loss = amsoftmax_loss + (1/self.config['num_spk']) * amsoftmax_syn_loss + self.lambda_adv * g_loss
-                self.manual_backward(total_loss)
-                # Logging
-                self.log('am_loss', amsoftmax_loss, prog_bar=True,sync_dist=False)
-                self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True,sync_dist=False)
-                self.log('acc', acc, prog_bar=True,sync_dist=False)
-                self.log('g_loss', g_loss, prog_bar=True,sync_dist=False)
-                self.log('total_loss', total_loss, prog_bar=True,sync_dist=False)
-                optimizer_main.step()
-                if self.trainer.global_step < self.config['warmup_step']:
-                    lr_scale = min(1., float(self.trainer.global_step + 1) / float(self.config['warmup_step']))
-                    for pg in optimizer_main.param_groups:
-                        pg['lr'] = lr_scale * self.learning_rate
-                print("gloss")
-                self.g_step_counter += 1
-
-                return total_loss
+        self.log('am_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
+        self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True, sync_dist=False)
+        self.log('acc', acc, prog_bar=True, sync_dist=False)
+        self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
+        self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
+        self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
                 
 
             
@@ -410,9 +319,8 @@ def cli_main():
         print("load weight from {}".format(config['checkpoint_path']))
         
     assert config['save_dir'] is not None
-    checkpoint_callback = ModelCheckpoint(monitor='cosine_eer', save_top_k=5,
-            filename="{epoch}_{cosine_eer:.2f}", dirpath=config['save_dir'])
-    lr_monitor = LearningRateMonitor(logging_interval='step')
+    checkpoint_callback = ModelCheckpoint(monitor='cosine_eer', save_top_k=3,
+            mode='min', filename="{epoch}_{cosine_eer:.2f}", dirpath=config['save_dir'])
 
 
     # wandb_logger = WandbLogger(
@@ -483,8 +391,7 @@ def cli_main():
 
     #     trainer.fit(final_project, datamodule=dataloader)
     
-    trainer.fit(final_project, datamodule=dataloader,
-            ckpt_path="/root/autodl-tmp/CAARMA/caarma_mfa_ckpts/epoch=3_cosine_eer=5.34.ckpt")
+    trainer.fit(final_project, datamodule=dataloader)
 
     #print("\n--- Running Immediate Validation ---")
     #trainer.validate(final_project, datamodule=dataloader, ckpt_path=config['checkpoint_path'])
