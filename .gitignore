@@ -1,0 +1,10 @@
+*.ckpt
+*.pt
+*.pth
+caarma_mfa_ckpts/
+cache_dir/
+__pycache__/
+*.pyc
+train_log.txt
+nohup.out
+voxceleb_full.csv
