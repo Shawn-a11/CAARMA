@@ -276,19 +276,35 @@ class Task(LightningModule):
     #     print("cosine minDCF(10-3): {:.2f} with threshold {:.2f}".format(minDCF, threshold))
     #     self.log("cosine_minDCF(10-3)", minDCF)
     def on_validation_epoch_end(self):
-        eval_vectors = np.vstack(self.eval_vectors)
-        index_mapping = self.index_mapping
+        num_gpus = torch.cuda.device_count()
+        # Gather eval_vectors from all GPUs
+        all_eval_vectors = [None for _ in range(num_gpus)]
+        dist.all_gather_object(all_eval_vectors, self.eval_vectors)
+        eval_vectors = np.vstack(all_eval_vectors)
+
+        # Gather index_mapping from all GPUs
+        all_index_mappings = [None for _ in range(num_gpus)]
+        dist.all_gather_object(all_index_mappings, self.index_mapping)
+        index_mapping = {}
+        for m in all_index_mappings:
+            index_mapping.update(m)
+
         eval_vectors = eval_vectors - np.mean(eval_vectors, axis=0)
         labels, scores = self.similarity_score(self.trials, index_mapping, eval_vectors)
         EER, threshold = self.compute_eer(labels, scores)
-        print("\ncosine EER: {:.2f}%".format(EER*100))
-        self.log("cosine_eer", EER*100)
-        minDCF, _ = self.compute_minDCF(labels, scores, p_target=0.01)
-        print("cosine minDCF(10-2): {:.4f}".format(minDCF))
-        self.log("cosine_minDCF(10-2)", minDCF)
-        minDCF, _ = self.compute_minDCF(labels, scores, p_target=0.001)
-        print("cosine minDCF(10-3): {:.4f}".format(minDCF))
-        self.log("cosine_minDCF(10-3)", minDCF)
+        # Only print and log on rank 0 to avoid duplicate output
+        if self.trainer.is_global_zero:
+            print("\ncosine EER: {:.2f}%".format(EER*100))
+            minDCF2, _ = self.compute_minDCF(labels, scores, p_target=0.01)
+            print("cosine minDCF(10-2): {:.4f}".format(minDCF2))
+            minDCF3, _ = self.compute_minDCF(labels, scores, p_target=0.001)
+            print("cosine minDCF(10-3): {:.4f}".format(minDCF3))
+        else:
+            minDCF2, _ = self.compute_minDCF(labels, scores, p_target=0.01)
+            minDCF3, _ = self.compute_minDCF(labels, scores, p_target=0.001)
+        self.log("cosine_eer", EER*100, sync_dist=True)
+        self.log("cosine_minDCF(10-2)", minDCF2, sync_dist=True)
+        self.log("cosine_minDCF(10-3)", minDCF3, sync_dist=True)
 
 
 def cli_main():
@@ -322,7 +338,8 @@ def cli_main():
         
     assert config['save_dir'] is not None
     checkpoint_callback = ModelCheckpoint(monitor='cosine_eer', save_top_k=3,
-            mode='min', filename="{epoch}_{cosine_eer:.2f}", dirpath=config['save_dir'])
+            mode='min', filename="{epoch}_{cosine_eer:.2f}", dirpath=config['save_dir'],
+            save_last=True)
 
 
     # wandb_logger = WandbLogger(
@@ -365,11 +382,13 @@ def cli_main():
 
     # )
     trainer = Trainer(
+        strategy=DDPStrategy(find_unused_parameters=True),
         accelerator="gpu",
-        devices=1,                    # 单卡
+        devices=4,                    # 4卡 V100
         max_epochs=config['epochs'],
         logger=False,
         num_sanity_val_steps=0,
+        sync_batchnorm=True,
         precision=16,
         callbacks=[checkpoint_callback],
         default_root_dir=config['save_dir'],
