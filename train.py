@@ -47,16 +47,11 @@ class Task(LightningModule):
         self.config = config
         self.automatic_optimization = False
         
-        embedding_dim = self.config['embedding_dim']
         self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
-        self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device) 
-        
-        # Add hyperparameters for GAN training
-        self.lambda_adv = 0.25  # Weight for adversarial loss
-        self.pretrain_eps = 15 # Number of steps to pre-train the discriminator
-        
-        self.pretrain_discriminator = True
-        self.discriminator_steps = 0
+        self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
+
+        # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
+        self.lambda_adv = 0.25
 
     def normalize(self, x):
         x_norm = torch.norm(x, p=2, dim=1, keepdim=True).clamp(min=1e-12)
@@ -66,15 +61,13 @@ class Task(LightningModule):
         feature = self.features(x)
         embedding = self.model(feature)
         return embedding
-    def adjust_weight(self,amsoftmax_loss,g_loss):
-        # Dynamic adjustment after warmup
-        if self.current_epoch > self.pretrain_eps:
-            loss_ratio = amsoftmax_loss / (g_loss + 1e-8)
+    def adjust_lambda_adv(self, am_loss, g_loss):
+        # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
+        loss_ratio = am_loss.detach() / (g_loss.detach() + 1e-8)
         if loss_ratio > 1.5:
-            self.lambda_adv = min(self.lambda_adv * 1.1, 0.01)
+            self.lambda_adv = min(self.lambda_adv * 1.1, 0.5)
         elif loss_ratio < 0.5:
-            self.lambda_adv = max(self.lambda_adv * 0.9, 0.0001)
-        return self.lambda_adv
+            self.lambda_adv = max(self.lambda_adv * 0.9, 0.01)
     
     def training_step(self, batch, batch_idx):
         opt_main, opt_d = self.optimizers()
@@ -92,31 +85,31 @@ class Task(LightningModule):
 
         opt_d.zero_grad()
         real_preds = self.discriminator(self.normalize(embedding.detach()))
-        fake_preds_d = self.discriminator(self.normalize(synth_for_d))
+        fake_preds_d = self.discriminator(self.normalize(synth_for_d.detach()))
+        # Paper Eq.(1): L_D = BCE(D(e),1) + BCE(D(e_syn),0)
         d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
                   self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
         self.manual_backward(d_loss)
         opt_d.step()
 
-        # ── Algorithm 2, Step 2: Update Encoder (Generator) every batch ──
+        # ── Algorithm 2, Step 2: Update M ─────────────────────────────────
         opt_main.zero_grad()
         amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
 
-        if self.current_epoch >= self.pretrain_eps:
-            # Post-pretrain: L_G = BCE(D(e_syn), 1) + BCE(D(e), 0) per paper Eq.(2)
-            fake_preds_g = self.discriminator(self.normalize(synthetic_embeddings))
-            real_preds_g = self.discriminator(self.normalize(embedding))
-            g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
-                      self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
-            total_loss = (amsoftmax_loss
-                          + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
-                          + self.lambda_adv * g_loss)
-        else:
-            # Pretrain phase: encoder trained with AM-Softmax + L_syn only
-            g_loss = torch.tensor(0.0, device=self.device)
-            total_loss = (amsoftmax_loss
-                          + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss)
+        # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
+        fake_preds_g = self.discriminator(self.normalize(synthetic_embeddings))
+        real_preds_g = self.discriminator(self.normalize(embedding))
+        g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
+                  self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
+
+        # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
+        self.adjust_lambda_adv(amsoftmax_loss, g_loss)
+
+        # Paper: L_total = L_real + (1/N)*L_syn + λ_adv * L_G
+        total_loss = (amsoftmax_loss
+                      + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
+                      + self.lambda_adv * g_loss)
 
         self.manual_backward(total_loss)
         opt_main.step()
@@ -165,9 +158,7 @@ class Task(LightningModule):
     def on_train_epoch_end(self):
         main_scheduler, d_scheduler = self.lr_schedulers()
         main_scheduler.step()
-        # Only step D scheduler after D starts training to preserve lr
-        if self.current_epoch >= self.pretrain_eps:
-            d_scheduler.step()
+        d_scheduler.step()
     def on_test_epoch_start(self):
         return self.on_validation_epoch_start()
     
