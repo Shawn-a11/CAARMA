@@ -422,7 +422,7 @@ def cli_main():
         logger=False,
         num_sanity_val_steps=0,
         sync_batchnorm=True,
-        precision=16,
+        precision="16-mixed",
         callbacks=[checkpoint_callback],
         default_root_dir=config['save_dir'],
         reload_dataloaders_every_n_epochs=1,
