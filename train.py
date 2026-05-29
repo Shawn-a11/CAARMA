@@ -79,6 +79,7 @@ class Task(LightningModule):
         embedding = self.model(feature)
 
         # ── Algorithm 2, Step 1: Update Discriminator every batch ────────
+        self.toggle_optimizer(opt_d)
         # Use detached embeddings so D update does not affect encoder
         with torch.no_grad():
             _, _, synth_for_d = self.loss(embedding.detach(), label)
@@ -91,8 +92,10 @@ class Task(LightningModule):
                   self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
         self.manual_backward(d_loss)
         opt_d.step()
+        self.untoggle_optimizer(opt_d)
 
         # ── Algorithm 2, Step 2: Update M ─────────────────────────────────
+        self.toggle_optimizer(opt_main)
         opt_main.zero_grad()
         amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
@@ -118,6 +121,7 @@ class Task(LightningModule):
 
         self.manual_backward(total_loss)
         opt_main.step()
+        self.untoggle_optimizer(opt_main)
 
         # Unfreeze D for next batch's discriminator update
         for p in self.discriminator.parameters():
