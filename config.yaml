@@ -48,7 +48,7 @@ weight_decay: 0.0000001
 trial_path: "/root/autodl-tmp/voxcele1_dataset/voxceleb1_test_v2.txt"
 root: "/root/autodl-tmp/voxcele1_dataset/test/wav/"
 warmup_step: 2000
-batch_size: 50
+batch_size: 200
 num_workers: 4
 second: 3
 do_augmentation: False
@@ -56,5 +56,5 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_ddp4"
 title: "caarma_mfa"
