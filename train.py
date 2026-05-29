@@ -78,6 +78,8 @@ class Task(LightningModule):
         # ── Algorithm 2, Step 1: Update Discriminator every batch ────────
         # Encoder runs inside no_grad so DDP never registers encoder params
         # as "used in this forward" — avoids stale All-Reduce deadlock.
+        # D forward uses a SINGLE concatenated call so DDP sees discriminator
+        # used exactly once per backward (prevents bucket reducer confusion).
         self.toggle_optimizer(opt_d)
         with torch.no_grad():
             feature_d = self.features(waveform)
@@ -85,8 +87,12 @@ class Task(LightningModule):
             _, _, synth_for_d = self.loss(embedding_d, label)
 
         opt_d.zero_grad()
-        real_preds = self.discriminator(self.normalize(embedding_d))
-        fake_preds_d = self.discriminator(self.normalize(synth_for_d))
+        B = embedding_d.size(0)
+        combined_d = torch.cat(
+            [self.normalize(embedding_d), self.normalize(synth_for_d)], dim=0
+        )
+        preds_d_all = self.discriminator(combined_d)
+        real_preds, fake_preds_d = preds_d_all[:B], preds_d_all[B:]
         # Paper Eq.(1): L_D = BCE(D(e),1) + BCE(D(e_syn),0)
         d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
                   self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
@@ -97,6 +103,7 @@ class Task(LightningModule):
         # ── Algorithm 2, Step 2: Update M every batch ────────────────────
         # Recompute embedding inside opt_main toggle so DDP only sees encoder
         # params; discriminator params are frozen by toggle_optimizer.
+        # D forward uses ONE concatenated call (real + synthetic together).
         self.toggle_optimizer(opt_main)
         feature = self.features(waveform)
         embedding = self.model(feature)
@@ -105,8 +112,11 @@ class Task(LightningModule):
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
 
         # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
-        fake_preds_g = self.discriminator(self.normalize(synthetic_embeddings))
-        real_preds_g = self.discriminator(self.normalize(embedding))
+        combined_g = torch.cat(
+            [self.normalize(synthetic_embeddings), self.normalize(embedding)], dim=0
+        )
+        preds_g_all = self.discriminator(combined_g)
+        fake_preds_g, real_preds_g = preds_g_all[:B], preds_g_all[B:]
         g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
                   self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
 
@@ -389,7 +399,11 @@ def cli_main():
 
     # )
     trainer = Trainer(
-        strategy=DDPStrategy(find_unused_parameters=True),
+        strategy=DDPStrategy(
+            find_unused_parameters=True,
+            gradient_as_bucket_view=True,   # avoid bucket reducer hangs with manual opt
+            static_graph=False,
+        ),
         accelerator="gpu",
         devices=4,                    # 4卡 V100
         max_epochs=config['epochs'],
