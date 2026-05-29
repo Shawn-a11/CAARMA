@@ -97,6 +97,11 @@ class Task(LightningModule):
         amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
 
+        # Freeze D params during M update: prevents D from accumulating gradients
+        # a second time in the same step, which causes DDP All-Reduce deadlock.
+        for p in self.discriminator.parameters():
+            p.requires_grad = False
+
         # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
         fake_preds_g = self.discriminator(self.normalize(synthetic_embeddings))
         real_preds_g = self.discriminator(self.normalize(embedding))
@@ -113,6 +118,10 @@ class Task(LightningModule):
 
         self.manual_backward(total_loss)
         opt_main.step()
+
+        # Unfreeze D for next batch's discriminator update
+        for p in self.discriminator.parameters():
+            p.requires_grad = True
 
         # Warmup LR
         if self.trainer.global_step < self.config['warmup_step']:
