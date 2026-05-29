@@ -75,70 +75,67 @@ class Task(LightningModule):
         waveform = batch['waveform']
         label = batch['mapped_id']
 
-        feature = self.features(waveform)
-        embedding = self.model(feature)
+        if batch_idx % 2 == 0:
+            # ── Algorithm 2, Step 1: Update Discriminator (Even Batches) ─────
+            # Encoder runs inside no_grad so DDP never registers encoder params
+            # as "used in this forward" — avoids stale All-Reduce deadlock.
+            self.toggle_optimizer(opt_d)
+            with torch.no_grad():
+                feature_d = self.features(waveform)
+                embedding_d = self.model(feature_d)
+                _, _, synth_for_d = self.loss(embedding_d, label)
 
-        # ── Algorithm 2, Step 1: Update Discriminator every batch ────────
-        self.toggle_optimizer(opt_d)
-        # Use detached embeddings so D update does not affect encoder
-        with torch.no_grad():
-            _, _, synth_for_d = self.loss(embedding.detach(), label)
+            opt_d.zero_grad()
+            real_preds = self.discriminator(self.normalize(embedding_d))
+            fake_preds_d = self.discriminator(self.normalize(synth_for_d))
+            # Paper Eq.(1): L_D = BCE(D(e),1) + BCE(D(e_syn),0)
+            d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
+                      self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
+            self.manual_backward(d_loss)
+            opt_d.step()
+            self.untoggle_optimizer(opt_d)
 
-        opt_d.zero_grad()
-        real_preds = self.discriminator(self.normalize(embedding.detach()))
-        fake_preds_d = self.discriminator(self.normalize(synth_for_d.detach()))
-        # Paper Eq.(1): L_D = BCE(D(e),1) + BCE(D(e_syn),0)
-        d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
-                  self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
-        self.manual_backward(d_loss)
-        opt_d.step()
-        self.untoggle_optimizer(opt_d)
+            self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
+        else:
+            # ── Algorithm 2, Step 2: Update M (Odd Batches) ──────────────────
+            # Recompute embedding inside opt_main toggle so DDP only sees encoder
+            # params; discriminator params are frozen by toggle_optimizer.
+            self.toggle_optimizer(opt_main)
+            feature = self.features(waveform)
+            embedding = self.model(feature)
+            opt_main.zero_grad()
+            amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
+            amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
 
-        # ── Algorithm 2, Step 2: Update M ─────────────────────────────────
-        self.toggle_optimizer(opt_main)
-        opt_main.zero_grad()
-        amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
-        amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
+            # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
+            fake_preds_g = self.discriminator(self.normalize(synthetic_embeddings))
+            real_preds_g = self.discriminator(self.normalize(embedding))
+            g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
+                      self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
 
-        # Freeze D params during M update: prevents D from accumulating gradients
-        # a second time in the same step, which causes DDP All-Reduce deadlock.
-        for p in self.discriminator.parameters():
-            p.requires_grad = False
+            # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
+            self.adjust_lambda_adv(amsoftmax_loss, g_loss)
 
-        # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
-        fake_preds_g = self.discriminator(self.normalize(synthetic_embeddings))
-        real_preds_g = self.discriminator(self.normalize(embedding))
-        g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
-                  self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
+            # Paper: L_total = L_real + (1/N)*L_syn + λ_adv * L_G
+            total_loss = (amsoftmax_loss
+                          + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
+                          + self.lambda_adv * g_loss)
 
-        # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
-        self.adjust_lambda_adv(amsoftmax_loss, g_loss)
+            self.manual_backward(total_loss)
+            opt_main.step()
+            self.untoggle_optimizer(opt_main)
 
-        # Paper: L_total = L_real + (1/N)*L_syn + λ_adv * L_G
-        total_loss = (amsoftmax_loss
-                      + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
-                      + self.lambda_adv * g_loss)
+            # Warmup LR
+            if self.trainer.global_step < self.config['warmup_step']:
+                lr_scale = min(1., float(self.trainer.global_step + 1) / float(self.config['warmup_step']))
+                for pg in opt_main.param_groups:
+                    pg['lr'] = lr_scale * self.learning_rate
 
-        self.manual_backward(total_loss)
-        opt_main.step()
-        self.untoggle_optimizer(opt_main)
-
-        # Unfreeze D for next batch's discriminator update
-        for p in self.discriminator.parameters():
-            p.requires_grad = True
-
-        # Warmup LR
-        if self.trainer.global_step < self.config['warmup_step']:
-            lr_scale = min(1., float(self.trainer.global_step + 1) / float(self.config['warmup_step']))
-            for pg in opt_main.param_groups:
-                pg['lr'] = lr_scale * self.learning_rate
-
-        self.log('am_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
-        self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True, sync_dist=False)
-        self.log('acc', acc, prog_bar=True, sync_dist=False)
-        self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
-        self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
-        self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
+            self.log('am_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
+            self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True, sync_dist=False)
+            self.log('acc', acc, prog_bar=True, sync_dist=False)
+            self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
+            self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
                 
 
             
