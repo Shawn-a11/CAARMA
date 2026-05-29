@@ -272,14 +272,21 @@ class Task(LightningModule):
         # Gather eval_vectors from all GPUs
         all_eval_vectors = [None for _ in range(num_gpus)]
         dist.all_gather_object(all_eval_vectors, self.eval_vectors)
-        eval_vectors = np.vstack(all_eval_vectors)
 
         # Gather index_mapping from all GPUs
         all_index_mappings = [None for _ in range(num_gpus)]
         dist.all_gather_object(all_index_mappings, self.index_mapping)
+
+        # Fix: local batch_idx from each GPU must be offset by the cumulative
+        # number of vectors from preceding GPUs before merging into global map.
         index_mapping = {}
-        for m in all_index_mappings:
-            index_mapping.update(m)
+        offset = 0
+        for gpu_vectors, gpu_mapping in zip(all_eval_vectors, all_index_mappings):
+            for path, local_idx in gpu_mapping.items():
+                index_mapping[path] = offset + local_idx
+            offset += len(gpu_vectors)
+
+        eval_vectors = np.vstack(all_eval_vectors)
 
         eval_vectors = eval_vectors - np.mean(eval_vectors, axis=0)
         labels, scores = self.similarity_score(self.trials, index_mapping, eval_vectors)
