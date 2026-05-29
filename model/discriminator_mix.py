@@ -120,6 +120,10 @@ class MixupDiscriminator(nn.Module):
         super(MixupDiscriminator, self).__init__()
         self.hubert = HubertModel.from_pretrained(hubert_model_name, cache_dir=cache_dir)
         
+        # Freeze HuBERT backbone parameters to prevent DDP deadlock of unused parameters
+        for param in self.hubert.parameters():
+            param.requires_grad = False
+            
         # For speaker recognition, layers 7-12 are most informative for speaker characteristics
         hidden_size = self.hubert.config.hidden_size
         self.projection_7 = spectral_norm(nn.Linear(hidden_size, proj_dim))
