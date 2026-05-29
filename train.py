@@ -50,17 +50,17 @@ class Task(LightningModule):
         self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
 
-        # Tell DDP to completely ignore HuBERT backbone params/buffers.
-        # HuBERT is frozen (requires_grad=False) but its 315M params still
-        # appear in DDP's autograd traversal under find_unused_parameters=True,
-        # causing intermittent deadlocks. Excluding them removes the overhead
-        # and the bucket-reducer race condition entirely.
-        hubert_ignore = []
-        for name, _ in self.discriminator.hubert.named_parameters():
-            hubert_ignore.append(f"discriminator.hubert.{name}")
-        for name, _ in self.discriminator.hubert.named_buffers():
-            hubert_ignore.append(f"discriminator.hubert.{name}")
-        self._ddp_params_and_buffers_to_ignore = hubert_ignore
+        # Tell DDP to completely ignore WavLM backbone params/buffers.
+        # WavLM is frozen (requires_grad=False) but its 315M params would
+        # still appear in DDP's autograd traversal under
+        # find_unused_parameters=True, causing intermittent deadlocks.
+        # Excluding them removes the overhead and the bucket-reducer race.
+        backbone_ignore = []
+        for name, _ in self.discriminator.wavlm.named_parameters():
+            backbone_ignore.append(f"discriminator.wavlm.{name}")
+        for name, _ in self.discriminator.wavlm.named_buffers():
+            backbone_ignore.append(f"discriminator.wavlm.{name}")
+        self._ddp_params_and_buffers_to_ignore = backbone_ignore
 
         # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
         self.lambda_adv = 0.25

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.spectral_norm as spectral_norm
 import torch.nn.functional as F
-from transformers import HubertModel, HubertConfig, Wav2Vec2Model
+from transformers import HubertModel, HubertConfig, Wav2Vec2Model, WavLMModel
 #from functions.attn_pooling import AttentivePooling
 
 class Adapter(nn.Module):
@@ -116,16 +116,20 @@ class EnhancedResidualBlock(nn.Module):
 
 
 class MixupDiscriminator(nn.Module):
-    def __init__(self, hubert_model_name="/root/autodl-tmp/hubert-large", cache_dir="", proj_dim=256, emb_dim=192):
+    def __init__(self, wavlm_model_name="/root/autodl-tmp/wavlm-large", cache_dir="", proj_dim=256, emb_dim=192):
         super(MixupDiscriminator, self).__init__()
-        self.hubert = HubertModel.from_pretrained(hubert_model_name, cache_dir=cache_dir)
-        
-        # Freeze HuBERT backbone parameters to prevent DDP deadlock of unused parameters
-        for param in self.hubert.parameters():
+        # Innovation: swap HuBERT-large with WavLM-large. WavLM is pre-trained
+        # with utterance-level speaker mixing/denoising objectives, giving its
+        # hidden states stronger speaker-discriminative signal than HuBERT's
+        # masked phonetic prediction — directly aligned with the SV task.
+        self.wavlm = WavLMModel.from_pretrained(wavlm_model_name, cache_dir=cache_dir)
+
+        # Freeze WavLM backbone parameters to prevent DDP deadlock of unused parameters
+        for param in self.wavlm.parameters():
             param.requires_grad = False
-            
+
         # For speaker recognition, layers 7-12 are most informative for speaker characteristics
-        hidden_size = self.hubert.config.hidden_size
+        hidden_size = self.wavlm.config.hidden_size
         self.projection_7 = spectral_norm(nn.Linear(hidden_size, proj_dim))
         self.projection_9 = spectral_norm(nn.Linear(hidden_size, proj_dim))
         self.projection_11 = spectral_norm(nn.Linear(hidden_size, proj_dim))
@@ -158,13 +162,13 @@ class MixupDiscriminator(nn.Module):
         if adapted_embeddings.dim() == 2:
             adapted_embeddings = adapted_embeddings.unsqueeze(1)
             
-        encoder_outputs = self.hubert.encoder(
+        encoder_outputs = self.wavlm.encoder(
             hidden_states=adapted_embeddings,
             output_hidden_states=True,
             return_dict=True
         )
         hidden_states = encoder_outputs.hidden_states
-        
+
         # Use higher layers (7, 9, 11, 12) which are better for speaker characteristics
         layer_projections = []
         for idx, (layer_idx, projection) in enumerate([
