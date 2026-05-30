@@ -42,12 +42,12 @@ augmentations: {
 dataset: "/root/autodl-tmp/CAARMA/voxceleb_full.csv"
 USE_WANDB: False;
 criterion: 'AMSoftmaxGAN'
-init_lr: 0.001
+init_lr: 0.002
 epochs: 30
 weight_decay: 0.0000001
 trial_path: "/root/autodl-tmp/voxcele1_dataset/voxceleb1_test_v2.txt"
 root: "/root/autodl-tmp/voxcele1_dataset/test/wav/"
-warmup_step: 2000
+warmup_step: 500
 batch_size: 50
 num_workers: 4
 second: 3
