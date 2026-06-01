@@ -32,7 +32,7 @@
 # # ECAPA-LARGE WAS USED 
 
 model: "REDIMNET-B6"
-features: "Fbank"
+features: "Passthrough"
 augmentations: {
   add_noise: False,
   add_reverb: False,

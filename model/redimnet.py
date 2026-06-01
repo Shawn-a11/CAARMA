@@ -9,10 +9,17 @@ The official implementation lives at IDRnD/ReDimNet on GitHub. We load it
 via torch.hub so we get the up-to-date model definition without vendoring.
 
 Pipeline contract this wrapper enforces:
-  input  : (B, 1, T_frames, n_mels=80)  — same shape Mel_Spectrogram emits
-  output : (B, 192)                      — same shape MFA-Conformer emits
+  input  : (B, T_samples)  raw waveform — config must set features:Passthrough
+  output : (B, 192)        same shape MFA-Conformer emits
 
-ReDimNet's native forward expects (B, n_mels, T) so we squeeze/permute.
+ReDimNet has its OWN internal feature extractor (Mel-spectrogram + 2D stem
+that expands 80 mel channels to ~2560 latent channels). Trying to replace
+that stem with Identity and feed pre-computed FBank breaks the channel
+contract of downstream stages. The correct integration is to route raw
+waveform through ReDimNet and let it do its own feature extraction. To
+make our pipeline's `self.features(waveform)` cooperate, set
+`features: "Passthrough"` in config.yaml — that returns waveform unchanged.
+
 ReDimNet-b6 native feature_dim is 256, so we add a Linear(256 → 192)
 projection so the rest of the pipeline (AM-Softmax W = 192×1211, mixup,
 discriminator adapter) can stay unchanged.
@@ -68,16 +75,11 @@ class ReDimNetB6(nn.Module):
             print(f'[ReDimNetB6] reset_parameters() called on {n_reset} '
                   f'modules → from-scratch random init')
 
-        # ReDimNet's backbone has an internal Mel-spectrogram feature extractor
-        # at self.backbone.spec which expects RAW WAVEFORM input (B, 1, T) and
-        # outputs (B, n_mels, T_frames). Our CAARMA pipeline already computes
-        # FBank via feature/fbanks.py:Mel_Spectrogram before passing to the
-        # encoder, so we'd be double-FBanking if we left this active. Replace
-        # it with Identity so the backbone consumes our pre-computed FBank.
-        if hasattr(self.backbone, 'spec'):
-            self.backbone.spec = nn.Identity()
-            print('[ReDimNetB6] self.backbone.spec replaced with Identity '
-                  '(CAARMA pre-computes FBank externally)')
+        # NOTE: ReDimNet does its own feature extraction via self.backbone.spec
+        # (Mel + 2D stem expanding 80 mels to thousands of latent channels).
+        # We keep it active and feed raw waveform — config.yaml must set
+        # features: "Passthrough" so our pipeline's self.features doesn't
+        # double-extract Mel features before the model.
 
         # ReDimNet-b6's native output dim. The hub model's `.feat_dim` attr
         # exposes this; we read it instead of hard-coding for robustness.
@@ -91,11 +93,11 @@ class ReDimNetB6(nn.Module):
         self.embedding_dim = embedding_dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x is (B, 1, T, n_mels) from Mel_Spectrogram. Squeeze channel and
-        # transpose to (B, n_mels, T) which is what ReDimNet expects.
-        if x.dim() == 4:
-            x = x.squeeze(1)                  # (B, T, n_mels)
-        x = x.transpose(1, 2).contiguous()    # (B, n_mels, T)
+        # x is raw waveform (B, T_samples) coming from WaveformPassthrough.
+        # ReDimNet's spec module expects (B, 1, T_samples) and handles
+        # pre-emphasis + STFT + Mel + 2D stem internally.
+        if x.dim() == 2:
+            x = x.unsqueeze(1)                # (B, 1, T_samples)
 
         emb = self.backbone(x)                # (B, native_dim)
         emb = self.proj(emb)                  # (B, embedding_dim)
