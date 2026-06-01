@@ -16,9 +16,30 @@ ReDimNet's native forward expects (B, n_mels, T) so we squeeze/permute.
 ReDimNet-b6 native feature_dim is 256, so we add a Linear(256 → 192)
 projection so the rest of the pipeline (AM-Softmax W = 192×1211, mixup,
 discriminator adapter) can stay unchanged.
+
+From-scratch training note
+==========================
+IDRnD's hubconf entry ReDimNet(model_name, train_type, dataset) ALWAYS
+loads the pretrained checkpoint via load_custom() — it doesn't expose a
+`pretrained=False` flag. For a fair apples-to-apples comparison against
+MFA-Conformer (which we trained from scratch), we load the model and then
+call reset_parameters() on every submodule that supports it. This wastes
+the checkpoint download bandwidth on first run, but gives us clean
+random-init weights for training.
 """
 import torch
 import torch.nn as nn
+
+
+def _reset_weights_recursive(module: nn.Module) -> int:
+    """Call reset_parameters() on every submodule that has it. Returns
+    the number of modules reset (for sanity logging)."""
+    n = 0
+    for m in module.modules():
+        if hasattr(m, 'reset_parameters'):
+            m.reset_parameters()
+            n += 1
+    return n
 
 
 class ReDimNetB6(nn.Module):
@@ -27,21 +48,25 @@ class ReDimNetB6(nn.Module):
     def __init__(self, n_mels: int = 80, embedding_dim: int = 192,
                  pretrained: bool = False):
         super().__init__()
-        # IDRnD publishes via torch.hub. `train_type='ptn'` is the standard
-        # phonetically-tied normalisation variant; `dataset='vox2'` is the
-        # vocab tag used by the hub entry — for from-scratch training it just
-        # controls which model variant signature we get, not which weights.
-        # pretrained=False to train from scratch (fair comparison with
-        # MFA-Conformer baseline).
+        # Hub entry signature: ReDimNet(model_name, train_type='ptn',
+        # dataset='vox2') — does NOT accept a pretrained kwarg, always loads
+        # the checkpoint for (model_name, train_type, dataset).
         self.backbone = torch.hub.load(
             'IDRnD/ReDimNet',
             'ReDimNet',
             model_name='b6',
             train_type='ptn',
             dataset='vox2',
-            pretrained=pretrained,
             source='github',
+            trust_repo=True,
         )
+
+        # If pretrained=False (default), wipe the loaded weights so we train
+        # from random init like MFA-Conformer baseline.
+        if not pretrained:
+            n_reset = _reset_weights_recursive(self.backbone)
+            print(f'[ReDimNetB6] reset_parameters() called on {n_reset} '
+                  f'modules → from-scratch random init')
 
         # ReDimNet-b6's native output dim. The hub model's `.feat_dim` attr
         # exposes this; we read it instead of hard-coding for robustness.
