@@ -81,9 +81,16 @@ class ReDimNetB6(nn.Module):
         # features: "Passthrough" so our pipeline's self.features doesn't
         # double-extract Mel features before the model.
 
-        # ReDimNet-b6's native output dim. The hub model's `.feat_dim` attr
-        # exposes this; we read it instead of hard-coding for robustness.
-        native_dim = getattr(self.backbone, 'feat_dim', 256)
+        # Probe the actual output dim with a dummy forward, rather than relying
+        # on getattr(self.backbone, 'feat_dim', ...). The .feat_dim attribute
+        # is not always set; b6 with default config actually emits 192-dim.
+        self.backbone.eval()
+        with torch.no_grad():
+            dummy = torch.randn(1, 1, 16000)  # 1 second of audio at 16kHz
+            native_dim = self.backbone(dummy).shape[-1]
+        self.backbone.train()
+        print(f'[ReDimNetB6] probed native output dim = {native_dim}')
+
         if native_dim != embedding_dim:
             self.proj = nn.Linear(native_dim, embedding_dim)
         else:
