@@ -33,6 +33,14 @@
 
 model: "MFA-CONFORMER"
 features: "Fbank"
+# SpecAugment on the mel-spectrogram (no external data, applied only during
+# training). Standard SUPERB-style config: 2 freq masks (≤15 bins each) +
+# 2 time masks (≤20 frames each).
+spec_aug: True
+freq_mask_param: 15
+time_mask_param: 20
+num_freq_masks: 2
+num_time_masks: 2
 augmentations: {
   add_noise: False,
   add_reverb: False,
@@ -56,5 +64,5 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_ddp4"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_specaug_ddp"
 title: "caarma_mfa"
