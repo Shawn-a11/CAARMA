@@ -68,6 +68,17 @@ class ReDimNetB6(nn.Module):
             print(f'[ReDimNetB6] reset_parameters() called on {n_reset} '
                   f'modules → from-scratch random init')
 
+        # ReDimNet's backbone has an internal Mel-spectrogram feature extractor
+        # at self.backbone.spec which expects RAW WAVEFORM input (B, 1, T) and
+        # outputs (B, n_mels, T_frames). Our CAARMA pipeline already computes
+        # FBank via feature/fbanks.py:Mel_Spectrogram before passing to the
+        # encoder, so we'd be double-FBanking if we left this active. Replace
+        # it with Identity so the backbone consumes our pre-computed FBank.
+        if hasattr(self.backbone, 'spec'):
+            self.backbone.spec = nn.Identity()
+            print('[ReDimNetB6] self.backbone.spec replaced with Identity '
+                  '(CAARMA pre-computes FBank externally)')
+
         # ReDimNet-b6's native output dim. The hub model's `.feat_dim` attr
         # exposes this; we read it instead of hard-coding for robustness.
         native_dim = getattr(self.backbone, 'feat_dim', 256)
