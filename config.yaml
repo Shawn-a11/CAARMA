@@ -42,11 +42,15 @@ time_mask_param: 20
 num_freq_masks: 2
 num_time_masks: 2
 augmentations: {
-  add_noise: False,
-  add_reverb: False,
-  drop_freq: False,
-  drop_chunk: False,
+  add_noise: True,       # MUSAN noise overlay at random SNR ∈ [15, 25] dB
+  add_reverb: True,      # RIRS_NOISES convolution
+  drop_freq: False,      # SpecAug handles freq mask on spectrogram instead
+  drop_chunk: False,     # SpecAug handles time mask on spectrogram instead
 }
+# Paths to noise/reverb CSV files (generated once by gen_aug_csv.py).
+# Each CSV has a single column 'wav' listing absolute paths.
+noise_csv: "/root/autodl-tmp/CAARMA/noise.csv"
+reverb_csv: "/root/autodl-tmp/CAARMA/rir.csv"
 dataset: "/root/autodl-tmp/CAARMA/voxceleb_full.csv"
 USE_WANDB: False;
 criterion: 'AMSoftmaxGAN'
@@ -59,10 +63,10 @@ warmup_step: 2000
 batch_size: 50
 num_workers: 4
 second: 3
-do_augmentation: False
+do_augmentation: True   # turn on the waveform-level Augmentation (MUSAN+RIR)
 num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_specaug_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_full_aug_ddp"
 title: "caarma_mfa"

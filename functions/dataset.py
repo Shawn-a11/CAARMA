@@ -51,8 +51,10 @@ class Train_Dataset(Dataset):
     def __getitem__(self, index):
         waveform_1 = load_audio(self.paths[index], self.second)
         waveform_length = waveform_1.shape[-1]
-        if self.do_augmentation:
-            waveform_1 = self.augmentation(waveform_1)
+        # Bug fix: __call__ signature is (x, sr); previously called with
+        # one positional arg which raised TypeError on the first batch.
+        if self.do_augmentation and self.augmentation is not None:
+            waveform_1 = self.augmentation(waveform_1, sr=16000)
         
         sample = {
         'waveform':  waveform_1,

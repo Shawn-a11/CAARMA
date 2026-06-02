@@ -1,120 +1,154 @@
+"""Wave-form augmentation for speaker-verification training.
+
+This module covers the augmentations that operate on the RAW WAVEFORM:
+  * add_noise    — overlay MUSAN noise at a random SNR
+  * add_reverb   — convolve with a Room Impulse Response (RIRS_NOISES)
+  * drop_chunk   — zero-out random time chunks (waveform-level dropout)
+
+SpecAugment-style frequency/time masking on the MEL-SPECTROGRAM is done
+separately inside ``feature/fbanks.py:Mel_Spectrogram`` — much more
+correct than trying to apply ``transforms.FrequencyMasking`` on raw audio.
+The ``drop_freq`` flag in this class is therefore disabled by design;
+keep the kwarg only for backward-compat with old configs.
+
+Bug-fix history vs the original code shipped with CAARMA repo:
+  1. CSV loading was unconditional → would crash on import if noise.csv /
+     rir.csv didn't exist on disk. Now we only load the CSVs whose
+     corresponding flag is True.
+  2. ``dataset.py`` called ``self.augmentation(x)`` with one positional
+     argument, but ``__call__(self, x, sr)`` expects two → guaranteed
+     TypeError at the first batch. Fix is on the dataset side now; here
+     we keep the two-argument signature.
+  3. The ``add_real_noise`` / ``add_reverberate`` helpers dtype-cast back
+     to ``waveform.dtype`` via ``.type_as(waveform)`` so downstream
+     STFT / Mel layers keep their expected dtype.
+"""
+
+import random
+from typing import Optional
+
+import numpy as np
 import pandas as pd
 import torch
-import numpy as np
 import torchaudio
-import torchaudio.transforms as transforms
 from scipy import signal
-import random
-# import psola
 
 
 class Augmentation:
-    def __init__(self, add_noise=True, add_reverb=True, drop_freq=True, drop_chunk=True,
-    noise_csv="noise.csv",
-    reverb_csv="rir.csv"):
-        self.noise_paths = pd.read_csv(noise_csv)["wav"]
-        self.reverb_paths = pd.read_csv(reverb_csv)["wav"]
+    def __init__(self,
+                 add_noise: bool = True,
+                 add_reverb: bool = True,
+                 drop_freq: bool = False,
+                 drop_chunk: bool = False,
+                 noise_csv: Optional[str] = None,
+                 reverb_csv: Optional[str] = None):
         self.add_noise = add_noise
         self.add_reverb = add_reverb
-        self.drop_freq =  drop_freq
+        self.drop_freq = drop_freq        # kept for compat, not recommended
         self.drop_chunk = drop_chunk
 
-    def compute_dB(self, waveform):
-        val = max(torch.tensor(0.0), torch.mean(torch.pow(waveform, 2)))
-        dB = 10*torch.log10(val+1e-4)
-        return dB
-    
-    def add_real_noise(self, waveform):
+        # Bug-fix #1: only load CSVs whose flag is on. Avoids crash when
+        # only SpecAugment / drop_chunk is enabled and no MUSAN/RIR data
+        # is present on disk.
+        self.noise_paths = None
+        self.reverb_paths = None
+        if add_noise:
+            if noise_csv is None:
+                raise ValueError("add_noise=True requires noise_csv path")
+            self.noise_paths = pd.read_csv(noise_csv)["wav"].tolist()
+            if len(self.noise_paths) == 0:
+                raise ValueError(f"noise_csv {noise_csv} is empty")
+        if add_reverb:
+            if reverb_csv is None:
+                raise ValueError("add_reverb=True requires reverb_csv path")
+            self.reverb_paths = pd.read_csv(reverb_csv)["wav"].tolist()
+            if len(self.reverb_paths) == 0:
+                raise ValueError(f"reverb_csv {reverb_csv} is empty")
+
+    # ──────────────────────────────────────────────────────────────────
+    def compute_dB(self, waveform: torch.Tensor) -> torch.Tensor:
+        val = torch.clamp(torch.mean(torch.pow(waveform, 2)), min=0.0)
+        return 10.0 * torch.log10(val + 1e-4)
+
+    def add_real_noise(self, waveform: torch.Tensor) -> torch.Tensor:
         clean_dB = self.compute_dB(waveform)
 
         idx = np.random.randint(0, len(self.noise_paths))
-        noise, sample_rate = torchaudio.load(self.noise_paths[idx])
-        noise = torch.tensor(noise, dtype=torch.float64)
+        noise, _ = torchaudio.load(self.noise_paths[idx])
+        # mono: average down if stereo
+        if noise.shape[0] > 1:
+            noise = noise.mean(dim=0, keepdim=True)
+        noise = noise.to(dtype=torch.float32).squeeze(0)  # (T,)
 
-        snr = np.random.uniform(15, 25)
-        snr = torch.tensor(snr)
+        snr = float(np.random.uniform(15, 25))
 
         noise_length = noise.shape[-1]
         audio_length = waveform.shape[-1]
 
         if audio_length >= noise_length:
             shortage = audio_length - noise_length
-            noise = torch.from_numpy(np.pad(noise.numpy(), ((0, 0), (0, shortage)), 'wrap'))
+            noise = torch.nn.functional.pad(noise, (0, shortage), mode='constant', value=0.0)
+            # wrap-around tile so silence isn't all zeros
+            if shortage > 0:
+                noise[noise_length:] = noise[:shortage]
         else:
-            start = np.random.randint(0, noise_length - audio_length)
-            start = torch.tensor(start)
-            noise = noise[:, start:start+audio_length]
+            start = int(np.random.randint(0, noise_length - audio_length))
+            noise = noise[start:start + audio_length]
 
         noise_dB = self.compute_dB(noise)
-        noise = torch.sqrt(10 ** ((clean_dB - noise_dB - snr) / 10)) * noise
-        updated_waveform = waveform + noise
-        return updated_waveform.type_as(waveform)
+        scale = torch.sqrt(10 ** ((clean_dB - noise_dB - snr) / 10))
+        noise = scale * noise
+        return (waveform + noise).type_as(waveform)
 
-    def add_reverberate(self, waveform):
+    def add_reverberate(self, waveform: torch.Tensor) -> torch.Tensor:
         audio_length = waveform.shape[-1]
         idx = np.random.randint(0, len(self.reverb_paths))
+        rir, _ = torchaudio.load(self.reverb_paths[idx])
+        if rir.shape[0] > 1:
+            rir = rir.mean(dim=0, keepdim=True)
+        rir = rir.to(dtype=torch.float32).squeeze(0)  # (T_rir,)
 
-        path = self.reverb_paths[idx]
-        rir, sample_rate = torchaudio.load(path)
-        rir = rir / torch.sqrt(torch.sum(rir ** 2))
+        rir_norm = torch.sqrt(torch.sum(rir ** 2)).clamp(min=1e-9)
+        rir = rir / rir_norm
 
-        updated_waveform = torch.tensor(signal.convolve(waveform, rir, mode='full'))
-        return updated_waveform[..., :audio_length].type_as(waveform)
+        # scipy.signal.convolve on numpy is faster than torch fft conv
+        out = signal.convolve(waveform.cpu().numpy(), rir.cpu().numpy(), mode='full')
+        out = torch.from_numpy(out)
+        return out[..., :audio_length].type_as(waveform)
 
-    def drop_frequency(self, waveform, sample_rate):
-        freq_mask_param=15 
-        num_masks=1
-        if waveform.dim() == 1:
-            waveform = waveform.unsqueeze(0)
+    def drop_chunk_waveform(self, waveform: torch.Tensor) -> torch.Tensor:
+        drop_count_low, drop_count_high = 1, 3
+        drop_length_low, drop_length_high = 1000, 2000
 
-        freq_masking = transforms.FrequencyMasking(freq_mask_param=freq_mask_param)
-        
-        for _ in range(num_masks):
-            updated_waveform = freq_masking(waveform)
-
-        return updated_waveform.type_as(waveform)
-        
-          
-    def drop_chunk_waveform(self, waveform):
-        drop_count_low = 1
-        drop_count_high = 3
-        drop_length_low = 1000
-        drop_length_high = 2000
-
-        dropped_waveform = waveform.clone()
+        dropped = waveform.clone()
         drop_times = random.randint(drop_count_low, drop_count_high)
-
         if drop_times == 0:
-            return dropped_waveform
+            return dropped
 
-        lengths = torch.randint(low=drop_length_low, high=drop_length_high + 1, size=(drop_times,))
-        start_min = 0
-        start_max = waveform.shape[-1] - lengths.max().item()
-
-        starts = torch.randint(low=start_min, high=start_max + 1, size=(drop_times,))
-        ends = starts + lengths
+        lengths = torch.randint(drop_length_low, drop_length_high + 1, (drop_times,))
+        max_start = waveform.shape[-1] - int(lengths.max().item())
+        if max_start <= 0:
+            return dropped
+        starts = torch.randint(0, max_start + 1, (drop_times,))
 
         for j in range(drop_times):
-            dropped_waveform[starts[j]:ends[j]] = 0.0
+            s = int(starts[j])
+            e = s + int(lengths[j])
+            dropped[s:e] = 0.0
+        return dropped.type_as(waveform)
 
-        return dropped_waveform.type_as(waveform)
-
-    # def add_psola(self, waveform):
-    #     waveform = waveform.numpy()
-    #     waveform = psola.vocode(audio=waveform, )
-
-
-    def __call__(self, x, sr):
+    # ──────────────────────────────────────────────────────────────────
+    def __call__(self, x: torch.Tensor, sr: int = 16000) -> torch.Tensor:  # noqa: ARG002
+        # `sr` is currently unused (none of the active augmentations need it),
+        # but kept in the signature so dataset.py can pass sr=16000 without
+        # caring about the implementation detail. Useful if we re-enable
+        # sample-rate-dependent augmentations later.
+        # Reverb first (room acoustics happens before noise mixes in).
         if self.add_reverb:
             x = self.add_reverberate(x)
-        
         if self.add_noise:
             x = self.add_real_noise(x)
-
-        if self.drop_freq:
-            x = self.drop_frequency(x, sr)
-
         if self.drop_chunk:
             x = self.drop_chunk_waveform(x)
-
+        # drop_freq removed — see module docstring.
         return x

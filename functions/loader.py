@@ -23,8 +23,24 @@ class super_dataset(LightningDataModule):
 
 
     def train_dataloader(self) -> DataLoader:
-        # augmentation = Augmentation(add_noise=self.config['augmentations']['add_noise'], add_reverb=self.config['augmentations']['add_reverb'], drop_freq=self.config['augmentations']['drop_freq'], drop_chunk=self.config['augmentations']['drop_chunk'])
-        train_dataset = Train_Dataset(self.config['dataset'], self.config['second'], do_augmentation=self.config['do_augmentation'], augmentation=None) #augmentation)
+        # Bug fix: previously augmentation=None was hardcoded → do_augmentation
+        # flag had no effect. Now we actually construct Augmentation when
+        # do_augmentation=True, and pass the noise/reverb CSV paths from config
+        # so add_noise / add_reverb can read MUSAN / RIRS_NOISES wav lists.
+        augmentation = None
+        if self.config.get('do_augmentation', False):
+            aug_cfg = self.config.get('augmentations', {})
+            augmentation = Augmentation(
+                add_noise=bool(aug_cfg.get('add_noise', False)),
+                add_reverb=bool(aug_cfg.get('add_reverb', False)),
+                drop_freq=bool(aug_cfg.get('drop_freq', False)),
+                drop_chunk=bool(aug_cfg.get('drop_chunk', False)),
+                noise_csv=self.config.get('noise_csv'),
+                reverb_csv=self.config.get('reverb_csv'),
+            )
+        train_dataset = Train_Dataset(self.config['dataset'], self.config['second'],
+                                      do_augmentation=self.config.get('do_augmentation', False),
+                                      augmentation=augmentation)
         loader = torch.utils.data.DataLoader(
                 train_dataset,
                 shuffle=True,
