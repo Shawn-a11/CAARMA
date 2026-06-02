@@ -86,14 +86,13 @@ class Augmentation:
         audio_length = waveform.shape[-1]
 
         if audio_length >= noise_length:
-            shortage = audio_length - noise_length
-            noise = torch.nn.functional.pad(noise, (0, shortage), mode='constant', value=0.0)
-            # wrap-around tile so silence isn't all zeros
-            if shortage > 0:
-                noise[noise_length:] = noise[:shortage]
+            # Tile noise (wrap-around) so the padding isn't silent. .repeat
+            # allocates a fresh tensor so there's no overlapping-memory issue.
+            n_tiles = (audio_length + noise_length - 1) // noise_length
+            noise = noise.repeat(n_tiles)[:audio_length]
         else:
             start = int(np.random.randint(0, noise_length - audio_length))
-            noise = noise[start:start + audio_length]
+            noise = noise[start:start + audio_length].contiguous()
 
         noise_dB = self.compute_dB(noise)
         scale = torch.sqrt(10 ** ((clean_dB - noise_dB - snr) / 10))
