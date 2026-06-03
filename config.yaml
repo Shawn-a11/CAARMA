@@ -58,3 +58,9 @@ embedding_dim: 192
 checkpoint_path: "None"
 save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_vmf_ddp"
 title: "caarma_mfa"
+
+# vMF concentration κ for synthetic embedding sampling around the SLERP midpoint.
+# Use the mean-resultant-length A_d(κ) as the real "tightness" — NOT κ itself.
+# At d=192:  κ=200→A≈0.55 (loose) | 500→0.81 (recommended) | 1000→0.91 | 2000→0.95
+# Ablation suggestion: {200, 500, 1000, 2000}.
+vmf_kappa: 500.0

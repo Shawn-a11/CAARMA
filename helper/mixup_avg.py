@@ -82,14 +82,38 @@ def _sample_vmf(mu, kappa, eps=1e-7):
 
 # ---------- public mixup interface ---------- #
 
-# vMF concentration: higher = tighter around the SLERP midpoint, lower = more
-# spread. 50 keeps samples within ~10° of the midpoint for typical embedding
-# dimensions, giving meaningful diversity without leaving the class-pair
-# manifold neighborhood.
-VMF_KAPPA = 50.0
+# vMF concentration parameter.
+#
+# The "tightness" of vMF(μ, κ) at dimension d is governed by the mean
+# resultant length A_d(κ) = I_{d/2}(κ) / I_{d/2-1}(κ), NOT by the absolute
+# value of κ. For large κ (κ ≫ d), A_d(κ) ≈ 1 - (d-1)/(2κ), so the effective
+# angular radius is θ_eff ≈ arccos(A_d(κ)).
+#
+# With our embedding dim d=192:
+#   κ=50   → A ≈ 0.18  → ~80°   (≈ uniform on sphere, "vMF" is meaningless)
+#   κ=200  → A ≈ 0.55  → ~57°   (loose neighborhood)
+#   κ=500  → A ≈ 0.81  → ~36°   (sensible "around midpoint" diversity)
+#   κ=1000 → A ≈ 0.91  → ~25°   (≈ real VoxCeleb intra-speaker spread; PSDA-fit)
+#   κ=2000 → A ≈ 0.95  → ~18°   (tight)
+#
+# Default 500 is the recommended starting point; override via config.yaml
+# `vmf_kappa` for ablation over {200, 500, 1000, 2000}.
+VMF_KAPPA = 500.0
 
 
-def mixup_data_euc_avg(x, W, labels):
+def vmf_effective_angle_deg(kappa: float, dim: int) -> float:
+    """Returns the effective angular radius θ_eff (degrees) under the
+    large-κ approximation A_d(κ) ≈ 1 - (d-1)/(2κ). For κ < (d-1)/2 the
+    distribution is effectively uniform; we return 90° in that case.
+    """
+    import math
+    if kappa <= (dim - 1) / 2.0:
+        return 90.0
+    a = 1.0 - (dim - 1) / (2.0 * kappa)
+    return math.degrees(math.acos(max(-1.0, min(1.0, a))))
+
+
+def mixup_data_euc_avg(x, W, labels, kappa=None):
     """Innovation: vMF-sampled spherical mixup.
 
     Pipeline: nearest-neighbor pair → SLERP midpoint on the unit hypersphere
@@ -97,7 +121,12 @@ def mixup_data_euc_avg(x, W, labels):
     prototypes (W) stay at the deterministic SLERP midpoint so AM-Softmax
     anchors remain stable while per-sample synthetic embeddings carry
     controlled stochastic diversity for L_syn and the adversarial loss.
+
+    `kappa` defaults to module-level VMF_KAPPA (500.0) but may be overridden
+    by the caller (e.g. from a YAML config) for ablation studies.
     """
+    if kappa is None:
+        kappa = VMF_KAPPA
     batch_size = x.size()[0]
     index = []
     w_mix = torch.zeros(W.size(0), batch_size)
@@ -147,7 +176,7 @@ def mixup_data_euc_avg(x, W, labels):
 
     # Embeddings: SLERP midpoint, then stochastic vMF sample around it.
     midpoint_x = _slerp(x, x[index, :], t=0.5)
-    x_mix = _sample_vmf(midpoint_x, kappa=VMF_KAPPA)
+    x_mix = _sample_vmf(midpoint_x, kappa=kappa)
 
     x_combined = x_mix
     w_combined = w_mix.to(x.device)

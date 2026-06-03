@@ -6,10 +6,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .utils import accuracy
-from helper.mixup_avg import mixup_data_euc_avg
+from helper.mixup_avg import mixup_data_euc_avg, VMF_KAPPA, vmf_effective_angle_deg
 
 class amsoftmax_gan(nn.Module):
-    def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30, **kwargs):
+    def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30, vmf_kappa=None, **kwargs):
         super(amsoftmax_gan, self).__init__()
 
         self.m = margin
@@ -23,14 +23,24 @@ class amsoftmax_gan(nn.Module):
         if torch.cuda.is_available():
             self.I = self.I.to('cuda:0')
 
+        # vMF concentration κ. None → module default (VMF_KAPPA = 500.0).
+        # Log A_d(κ) ≈ effective angular radius so we can detect "κ too small
+        # → uniform sphere" silently degrading the experiment.
+        self.vmf_kappa = float(vmf_kappa) if vmf_kappa is not None else VMF_KAPPA
+        eff_deg = vmf_effective_angle_deg(self.vmf_kappa, embedding_dim)
         print('Initialised AM-Softmax m=%.3f s=%.3f'%(self.m, self.s))
         print('Embedding dim is {}, number of speakers is {}'.format(embedding_dim, num_classes))
+        print('vMF κ=%.1f at d=%d  →  effective angular radius ≈ %.1f°'
+              % (self.vmf_kappa, embedding_dim, eff_deg))
+        if eff_deg > 70.0:
+            print('  ⚠ WARNING: κ too small — vMF samples are nearly uniform on the sphere; '
+                  'increase κ (recommended: 500-2000 for d=192).')
 
     def forward(self, x, label=None, flagSyn=False):
         assert x.size()[0] == label.size()[0]
         assert x.size()[1] == self.in_feats
         synthetic_embeddings,  y_combined , w_combined = mixup_data_euc_avg(
-            x, self.W, label
+            x, self.W, label, kappa=self.vmf_kappa,
             )
         if flagSyn:
             
