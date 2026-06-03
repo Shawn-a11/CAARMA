@@ -7,7 +7,6 @@ from pytorch_lightning.strategies import DDPStrategy
 
 import random
 import torch
-import torch.nn as nn
 import numpy as np
 import yaml
 
@@ -48,7 +47,13 @@ class Task(LightningModule):
         self.automatic_optimization = False
         
         self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
-        self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
+
+        # WGAN-GP hyperparameters (Gulrajani et al. 2017):
+        #   λ_gp = 10 enforces 1-Lipschitz via gradient penalty
+        #   λ_adv = 0.25 fixed — dynamic adjustment is meaningless because WGAN
+        #     critic outputs are unbounded reals (the BCE-ratio heuristic only
+        #     made sense for [0,1]-scale BCE losses).
+        self.lambda_gp = float(config.get('lambda_gp', 10.0))
 
         # Tell DDP to completely ignore WavLM backbone params/buffers.
         # WavLM is frozen (requires_grad=False) but its 315M params would
@@ -62,8 +67,9 @@ class Task(LightningModule):
             backbone_ignore.append(f"discriminator.wavlm.{name}")
         self._ddp_params_and_buffers_to_ignore = backbone_ignore
 
-        # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
-        self.lambda_adv = 0.25
+        # Fixed λ_adv (no dynamic adjustment — WGAN critic outputs are
+        # unbounded so the BCE-style ratio heuristic is meaningless).
+        self.lambda_adv = float(config.get('lambda_adv', 0.25))
 
     def normalize(self, x):
         x_norm = torch.norm(x, p=2, dim=1, keepdim=True).clamp(min=1e-12)
@@ -73,13 +79,32 @@ class Task(LightningModule):
         feature = self.features(x)
         embedding = self.model(feature)
         return embedding
-    def adjust_lambda_adv(self, am_loss, g_loss):
-        # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
-        loss_ratio = am_loss.detach() / (g_loss.detach() + 1e-8)
-        if loss_ratio > 1.5:
-            self.lambda_adv = min(self.lambda_adv * 1.1, 0.5)
-        elif loss_ratio < 0.5:
-            self.lambda_adv = max(self.lambda_adv * 0.9, 0.01)
+    def _gradient_penalty(self, real, fake):
+        """WGAN-GP gradient penalty (Gulrajani et al. 2017, Eq. 3).
+
+        Sample x̂ = α·real + (1-α)·fake with α ~ U[0,1] per example, then
+        penalize (||∇_x̂ D(x̂)||₂ - 1)². Forces D to be 1-Lipschitz on the
+        straight line between real and synthetic embeddings.
+
+        Note: requires `create_graph=True` for the double backward, and
+        `interp.requires_grad_(True)` so autograd treats it as a leaf-like
+        differentiable input. DDP works because the discriminator is the
+        only module touched here and toggle_optimizer has frozen everything
+        else.
+        """
+        B = real.size(0)
+        alpha = torch.rand(B, 1, device=real.device, dtype=real.dtype)
+        interp = (alpha * real + (1.0 - alpha) * fake).requires_grad_(True)
+        d_interp = self.discriminator(interp)
+        grads = torch.autograd.grad(
+            outputs=d_interp.sum(),
+            inputs=interp,
+            create_graph=True,
+            retain_graph=True,
+            only_inputs=True,
+        )[0]
+        gp = ((grads.norm(2, dim=1) - 1.0) ** 2).mean()
+        return gp
     
     def training_step(self, batch, batch_idx):
         opt_main, opt_d = self.optimizers()
@@ -100,14 +125,17 @@ class Task(LightningModule):
 
         opt_d.zero_grad()
         B = embedding_d.size(0)
-        combined_d = torch.cat(
-            [self.normalize(embedding_d), self.normalize(synth_for_d)], dim=0
-        )
+        real = self.normalize(embedding_d)
+        fake = self.normalize(synth_for_d)
+        combined_d = torch.cat([real, fake], dim=0)
         preds_d_all = self.discriminator(combined_d)
         real_preds, fake_preds_d = preds_d_all[:B], preds_d_all[B:]
-        # Paper Eq.(1): L_D = BCE(D(e),1) + BCE(D(e_syn),0)
-        d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
-                  self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
+
+        # WGAN-GP critic loss: minimize E[D(fake)] - E[D(real)] + λ_gp · GP
+        # (Wasserstein-1 distance estimator with 1-Lipschitz enforced by GP.)
+        d_wass = fake_preds_d.mean() - real_preds.mean()
+        gp = self._gradient_penalty(real.detach(), fake.detach())
+        d_loss = d_wass + self.lambda_gp * gp
         self.manual_backward(d_loss)
         opt_d.step()
         self.untoggle_optimizer(opt_d)
@@ -123,17 +151,16 @@ class Task(LightningModule):
         amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
 
-        # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
+        # WGAN-GP generator loss — symmetric form mirroring paper Eq.(2)
+        # (push fake "up", real "down" from the critic's perspective):
+        #   L_G = -E[D(fake)] + E[D(real)]
+        # Equivalent to maximizing the Wasserstein distance estimator FOR G.
         combined_g = torch.cat(
             [self.normalize(synthetic_embeddings), self.normalize(embedding)], dim=0
         )
         preds_g_all = self.discriminator(combined_g)
         fake_preds_g, real_preds_g = preds_g_all[:B], preds_g_all[B:]
-        g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
-                  self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
-
-        # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
-        self.adjust_lambda_adv(amsoftmax_loss, g_loss)
+        g_loss = -fake_preds_g.mean() + real_preds_g.mean()
 
         # Paper: L_total = L_real + (1/N)*L_syn + λ_adv * L_G
         total_loss = (amsoftmax_loss
@@ -156,6 +183,8 @@ class Task(LightningModule):
         self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
+        self.log('d_wass', d_wass, prog_bar=False, sync_dist=False)
+        self.log('gp', gp, prog_bar=False, sync_dist=False)
                 
 
             
@@ -170,13 +199,12 @@ class Task(LightningModule):
             betas=(0.9, 0.999)  # Standard Adam betas
         )
 
-        # Lower learning rate for discriminator
+        # WGAN-GP recommends betas=(0.0, 0.9) for the critic.
         discriminator_optimizer = AdamW(
             self.discriminator.parameters(),
-            lr= 2e-4, # Significantly reduced 2e-4
-            #self.learning_rate * 0.01,  
+            lr=2e-4,
             weight_decay=self.weight_decay,
-            betas=(0.5, 0.999)
+            betas=(0.0, 0.9),
         )
         
         embedding_scheduler = StepLR(embedding_optimizer, step_size = 4, gamma=0.5)

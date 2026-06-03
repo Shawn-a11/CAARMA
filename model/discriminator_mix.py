@@ -115,47 +115,84 @@ class EnhancedResidualBlock(nn.Module):
         return F.gelu(out + identity)
 
 
+class _WGANResidualBlock(nn.Module):
+    """ResidualBlock variant without spectral_norm for WGAN-GP critic.
+    WGAN-GP requires the discriminator to be unconstrained in operator-norm
+    (gradient penalty already enforces 1-Lipschitz). LayerNorm is kept since
+    WGAN-GP forbids BatchNorm but allows LayerNorm."""
+    def __init__(self, in_features, out_features):
+        super().__init__()
+        self.linear1 = nn.Linear(in_features, out_features)
+        self.linear2 = nn.Linear(out_features, out_features)
+        self.shortcut = nn.Linear(in_features, out_features) if in_features != out_features else nn.Identity()
+
+    def forward(self, x):
+        identity = self.shortcut(x)
+        out = F.leaky_relu(self.linear1(x), 0.2)
+        out = self.linear2(out)
+        return F.leaky_relu(out + identity, 0.2)
+
+
+class _WGANAdapter(nn.Module):
+    """EnhancedAdapter without spectral_norm — for WGAN-GP critic input path."""
+    def __init__(self, input_dim, hidden_dim, dropout_rate=0.1):
+        super().__init__()
+        self.down_project = nn.Linear(input_dim, hidden_dim)
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.norm2 = nn.LayerNorm(hidden_dim)
+        self.intermediate = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim * 2),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim * 2, hidden_dim),
+        )
+        self.skip_connection = nn.Linear(input_dim, hidden_dim) if input_dim != hidden_dim else nn.Identity()
+
+    def forward(self, x):
+        identity = self.skip_connection(x)
+        out = self.down_project(x)
+        out = self.norm1(out)
+        out = self.intermediate(out)
+        out = self.norm2(out)
+        return out + identity
+
+
 class MixupDiscriminator(nn.Module):
     def __init__(self, wavlm_model_name="/root/autodl-tmp/wavlm-large", cache_dir="", proj_dim=256, emb_dim=192):
         super(MixupDiscriminator, self).__init__()
-        # Innovation: swap HuBERT-large with WavLM-large. WavLM is pre-trained
-        # with utterance-level speaker mixing/denoising objectives, giving its
-        # hidden states stronger speaker-discriminative signal than HuBERT's
-        # masked phonetic prediction — directly aligned with the SV task.
+        # Innovation: WavLM-large as feature extractor + WGAN-GP critic head.
+        # WGAN-GP requires the critic to be free of spectral_norm / batch_norm
+        # (gradient penalty enforces 1-Lipschitz on its own); LayerNorm is OK.
+        # Output is an UNBOUNDED Wasserstein score, not a real/fake probability.
         self.wavlm = WavLMModel.from_pretrained(wavlm_model_name, cache_dir=cache_dir)
 
         # Freeze WavLM backbone parameters to prevent DDP deadlock of unused parameters
         for param in self.wavlm.parameters():
             param.requires_grad = False
 
-        # For speaker recognition, layers 7-12 are most informative for speaker characteristics
         hidden_size = self.wavlm.config.hidden_size
-        self.projection_7 = spectral_norm(nn.Linear(hidden_size, proj_dim))
-        self.projection_9 = spectral_norm(nn.Linear(hidden_size, proj_dim))
-        self.projection_11 = spectral_norm(nn.Linear(hidden_size, proj_dim))
-        self.projection_12 = spectral_norm(nn.Linear(hidden_size, proj_dim))
-        
+        self.projection_7 = nn.Linear(hidden_size, proj_dim)
+        self.projection_9 = nn.Linear(hidden_size, proj_dim)
+        self.projection_11 = nn.Linear(hidden_size, proj_dim)
+        self.projection_12 = nn.Linear(hidden_size, proj_dim)
+
         self.layer_norm = nn.LayerNorm(hidden_size)
-        
-        # Enhanced attention pooling with multi-head attention
         self.attn_pool = MultiHeadAttentivePooling(hidden_size, num_heads=8)
-        
-        # Weighted layer combination
         self.layer_weights = nn.Parameter(torch.ones(4))
-        
-        # Enhanced discriminator with residual connections
+
+        # Critic head — no spectral_norm; LayerNorm preserved inside residual blocks.
+        # Dropout removed: stochastic regularization conflicts with gradient
+        # penalty (each interpolated sample needs deterministic D output for
+        # double-backward to be meaningful).
         self.discriminator = nn.Sequential(
-            ResidualBlock(proj_dim * 4, 512),
+            _WGANResidualBlock(proj_dim * 4, 512),
             nn.LeakyReLU(negative_slope=0.2),
-            nn.Dropout(0.2),
-            ResidualBlock(512, 256),
+            _WGANResidualBlock(512, 256),
             nn.LeakyReLU(negative_slope=0.2),
-            nn.Dropout(0.1),
-            spectral_norm(nn.Linear(256, 1))
+            nn.Linear(256, 1),
         )
-        
-        # Improved adapter with skip connection
-        self.adapter = EnhancedAdapter(input_dim=emb_dim, hidden_dim=hidden_size)
+
+        self.adapter = _WGANAdapter(input_dim=emb_dim, hidden_dim=hidden_size)
         
     def forward(self, input_audio):
         adapted_embeddings = self.adapter(input_audio)

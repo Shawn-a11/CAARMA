@@ -56,5 +56,9 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_wavlm_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_wavlm_wganpgp_ddp"
 title: "caarma_mfa"
+
+# WGAN-GP hyperparameters (innovation: WavLM critic + Wasserstein loss + GP)
+lambda_gp: 10.0
+lambda_adv: 0.25
