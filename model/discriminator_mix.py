@@ -116,23 +116,27 @@ class EnhancedResidualBlock(nn.Module):
 
 
 class MixupDiscriminator(nn.Module):
-    def __init__(self, wavlm_model_name="/root/autodl-tmp/wavlm-large", cache_dir="", proj_dim=256, emb_dim=192):
+    def __init__(self, wavlm_model_name="microsoft/wavlm-base-plus", cache_dir="", proj_dim=256, emb_dim=192):
         super(MixupDiscriminator, self).__init__()
-        # Innovation: swap HuBERT-large with WavLM-large. WavLM is pre-trained
-        # with utterance-level speaker mixing/denoising objectives, giving its
-        # hidden states stronger speaker-discriminative signal than HuBERT's
-        # masked phonetic prediction — directly aligned with the SV task.
+        # Innovation: WavLM-Base+ (94M params, 12 layers, hidden 768) instead
+        # of WavLM-Large (315M, 24 layers, hidden 1024). Tests whether the
+        # discriminator backbone capacity is a bottleneck for CAARMA — SUPERB
+        # SID/ASV scores are very close between Base+ and Large despite the
+        # ~3.3× param difference, so if EER is preserved we save VRAM and
+        # DDP traversal cost. If EER degrades meaningfully, capacity matters.
         self.wavlm = WavLMModel.from_pretrained(wavlm_model_name, cache_dir=cache_dir)
 
         # Freeze WavLM backbone parameters to prevent DDP deadlock of unused parameters
         for param in self.wavlm.parameters():
             param.requires_grad = False
 
-        # For speaker recognition, layers 7-12 are most informative for speaker characteristics
-        hidden_size = self.wavlm.config.hidden_size
-        self.projection_7 = spectral_norm(nn.Linear(hidden_size, proj_dim))
-        self.projection_9 = spectral_norm(nn.Linear(hidden_size, proj_dim))
-        self.projection_11 = spectral_norm(nn.Linear(hidden_size, proj_dim))
+        # Layer selection: WavLM-Base+ has 12 transformer layers (vs 24 in
+        # Large). Mirror the "upper half" choice [7,9,11,12]/24 with a
+        # rescaled [4,7,10,12]/12 — roughly 1/3, 2/3, 5/6, end.
+        hidden_size = self.wavlm.config.hidden_size  # 768 for Base+
+        self.projection_4  = spectral_norm(nn.Linear(hidden_size, proj_dim))
+        self.projection_7  = spectral_norm(nn.Linear(hidden_size, proj_dim))
+        self.projection_10 = spectral_norm(nn.Linear(hidden_size, proj_dim))
         self.projection_12 = spectral_norm(nn.Linear(hidden_size, proj_dim))
         
         self.layer_norm = nn.LayerNorm(hidden_size)
@@ -169,12 +173,13 @@ class MixupDiscriminator(nn.Module):
         )
         hidden_states = encoder_outputs.hidden_states
 
-        # Use higher layers (7, 9, 11, 12) which are better for speaker characteristics
+        # Use higher layers (4, 7, 10, 12) rescaled from Large's (7,9,11,12)
+        # to Base+'s 12-layer depth. hidden_states is 1-indexed up to 12.
         layer_projections = []
         for idx, (layer_idx, projection) in enumerate([
-            (7, self.projection_7),
-            (9, self.projection_9),
-            (11, self.projection_11),
+            (4,  self.projection_4),
+            (7,  self.projection_7),
+            (10, self.projection_10),
             (12, self.projection_12)
         ]):
             # Apply layer norm before projection
