@@ -116,14 +116,27 @@ class EnhancedResidualBlock(nn.Module):
 
 
 class MixupDiscriminator(nn.Module):
-    def __init__(self, hubert_model_name="/root/autodl-tmp/hubert-large", cache_dir="", proj_dim=256, emb_dim=192):
+    def __init__(self, hubert_model_name="facebook/hubert-large-ll60k", cache_dir="", proj_dim=256, emb_dim=192):
         super(MixupDiscriminator, self).__init__()
+        # Innovation: HuBERT-Large LL60k (pretrain-only on LibriLight 60kh)
+        # instead of HuBERT-Large LS960-FT (the same backbone but additionally
+        # fine-tuned for ASR on LibriSpeech 960h).
+        #
+        # Hypothesis: ASR fine-tuning shifts hidden representations toward
+        # phonetic discrimination at the expense of speaker-discriminative
+        # signal. For CAARMA's adversarial critic — whose job is to tell
+        # synthetic-speaker embeddings from real ones — the pretrain-only
+        # checkpoint should expose richer speaker structure.
+        #
+        # Architecture is IDENTICAL between the two checkpoints (24 transformer
+        # layers, hidden 1024, 315M params). Only the weights differ — no
+        # code change beyond the HF model id and save_dir.
         self.hubert = HubertModel.from_pretrained(hubert_model_name, cache_dir=cache_dir)
-        
+
         # Freeze HuBERT backbone parameters to prevent DDP deadlock of unused parameters
         for param in self.hubert.parameters():
             param.requires_grad = False
-            
+
         # For speaker recognition, layers 7-12 are most informative for speaker characteristics
         hidden_size = self.hubert.config.hidden_size
         self.projection_7 = spectral_norm(nn.Linear(hidden_size, proj_dim))
