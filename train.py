@@ -74,12 +74,17 @@ class Task(LightningModule):
         embedding = self.model(feature)
         return embedding
     def adjust_lambda_adv(self, am_loss, g_loss):
-        # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
+        # Source-faithful control law (massabaali7/CAARMA train.py adjust_weight):
+        # cap=0.01, floor=0.0001. This caps the adversarial weight at ~1% of total
+        # loss so L_G stays a weak regularizer rather than competing with L_real.
+        # Combined with the per-batch reset (lambda_adv = 0.25 at start of every
+        # G step) the effective trajectory is the discrete {0.01, 0.225, 0.25}
+        # set from source code, not our previous compounding range [0.01, 0.5].
         loss_ratio = am_loss.detach() / (g_loss.detach() + 1e-8)
         if loss_ratio > 1.5:
-            self.lambda_adv = min(self.lambda_adv * 1.1, 0.5)
+            self.lambda_adv = min(self.lambda_adv * 1.1, 0.01)
         elif loss_ratio < 0.5:
-            self.lambda_adv = max(self.lambda_adv * 0.9, 0.01)
+            self.lambda_adv = max(self.lambda_adv * 0.9, 0.0001)
     
     def training_step(self, batch, batch_idx):
         opt_main, opt_d = self.optimizers()
@@ -117,6 +122,13 @@ class Task(LightningModule):
         # params; discriminator params are frozen by toggle_optimizer.
         # D forward uses ONE concatenated call (real + synthetic together).
         self.toggle_optimizer(opt_main)
+
+        # Source-faithful: reset λ_adv to 0.25 at start of every G step. This
+        # turns adjust_lambda_adv into a discrete one-shot decision based on
+        # the current batch's am/g ratio, rather than a multiplicative drift
+        # that compounds across batches.
+        self.lambda_adv = 0.25
+
         feature = self.features(waveform)
         embedding = self.model(feature)
         opt_main.zero_grad()
@@ -156,6 +168,7 @@ class Task(LightningModule):
         self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
+        self.log('lambda_adv', self.lambda_adv, prog_bar=False, sync_dist=False)
                 
 
             
@@ -344,6 +357,11 @@ def cli_main():
         return config
 
     config = load_config("/root/autodl-tmp/CAARMA/config.yaml")
+
+    # Reproducibility: seed everything before any randomness (encoder init,
+    # AM-Softmax W init, DataLoader workers, augmentation choices).
+    seed_everything(int(config.get('seed', 42)), workers=True)
+
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Device: ", device)
     
