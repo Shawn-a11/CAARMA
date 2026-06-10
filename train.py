@@ -63,6 +63,10 @@ class Task(LightningModule):
         # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
         self.lambda_adv = 0.25
 
+    def set_discriminator_grad(self, requires_grad):
+        for param in self.discriminator.parameters():
+            param.requires_grad_(requires_grad)
+
     def normalize(self, x):
         x_norm = torch.norm(x, p=2, dim=1, keepdim=True).clamp(min=1e-12)
         x_norm = torch.div(x, x_norm)
@@ -86,11 +90,8 @@ class Task(LightningModule):
         label = batch['mapped_id']
 
         # ── Algorithm 2, Step 1: Update Discriminator every batch ────────
-        # Encoder runs inside no_grad so DDP never registers encoder params
-        # as "used in this forward" — avoids stale All-Reduce deadlock.
-        # D forward uses a SINGLE concatenated call so DDP sees discriminator
-        # used exactly once per backward (prevents bucket reducer confusion).
-        self.toggle_optimizer(opt_d)
+        # Encoder is detached from the D update; only D receives gradients.
+        self.set_discriminator_grad(True)
         with torch.no_grad():
             feature_d = self.features(waveform)
             embedding_d = self.model(feature_d)
@@ -108,13 +109,12 @@ class Task(LightningModule):
                   self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
         self.manual_backward(d_loss)
         opt_d.step()
-        self.untoggle_optimizer(opt_d)
 
         # ── Algorithm 2, Step 2: Update M every batch ────────────────────
-        # Recompute embedding inside opt_main toggle so DDP only sees encoder
-        # params; discriminator params are frozen by toggle_optimizer.
-        # D forward uses ONE concatenated call (real + synthetic together).
-        self.toggle_optimizer(opt_main)
+        # Freeze D weights for the generator/encoder update. Autograd still
+        # backpropagates through D to its input embeddings, but DDP no longer
+        # waits for D parameter gradients in this second backward pass.
+        self.set_discriminator_grad(False)
         feature = self.features(waveform)
         embedding = self.model(feature)
         opt_main.zero_grad()
@@ -140,7 +140,7 @@ class Task(LightningModule):
 
         self.manual_backward(total_loss)
         opt_main.step()
-        self.untoggle_optimizer(opt_main)
+        self.set_discriminator_grad(True)
 
         # Warmup LR
         if self.trainer.global_step < self.config['warmup_step']:
