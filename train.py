@@ -378,6 +378,8 @@ def cli_main():
     wandb_logger = None
 
     AVAIL_GPUS = torch.cuda.device_count()
+    if AVAIL_GPUS < 1:
+        raise RuntimeError("No CUDA GPU is visible to PyTorch.")
     # trainer = Trainer(
     #     strategy=DDPStrategy(find_unused_parameters=True, gradient_as_bucket_view=True),
     #     # plugins=DDPPlugin(find_unused_parameters=False),
@@ -411,11 +413,14 @@ def cli_main():
     trainer = Trainer(
         strategy=DDPStrategy(
             find_unused_parameters=True,
-            gradient_as_bucket_view=True,   # avoid bucket reducer hangs with manual opt
+            # MLP-D is tiny and does not need the bucket-view optimization that
+            # was useful for the HuBERT discriminator. Keeping it off makes
+            # manual two-optimizer DDP less brittle across 2/4-GPU machines.
+            gradient_as_bucket_view=False,
             static_graph=False,
         ),
         accelerator="gpu",
-        devices=4,                    # 4卡 V100
+        devices=AVAIL_GPUS,
         max_epochs=config['epochs'],
         logger=False,
         num_sanity_val_steps=0,
@@ -423,7 +428,7 @@ def cli_main():
         precision="16-mixed",
         callbacks=[checkpoint_callback],
         default_root_dir=config['save_dir'],
-        reload_dataloaders_every_n_epochs=1,
+        reload_dataloaders_every_n_epochs=0,
         accumulate_grad_batches=1,
         log_every_n_steps=25,
         benchmark=True,
