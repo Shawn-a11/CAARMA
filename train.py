@@ -91,6 +91,7 @@ class Task(LightningModule):
 
         # ── Algorithm 2, Step 1: Update Discriminator every batch ────────
         # Encoder is detached from the D update; only D receives gradients.
+        self.toggle_optimizer(opt_d)
         self.set_discriminator_grad(True)
         with torch.no_grad():
             feature_d = self.features(waveform)
@@ -109,11 +110,13 @@ class Task(LightningModule):
                   self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
         self.manual_backward(d_loss)
         opt_d.step()
+        self.untoggle_optimizer(opt_d)
 
         # ── Algorithm 2, Step 2: Update M every batch ────────────────────
         # Freeze D weights for the generator/encoder update. Autograd still
         # backpropagates through D to its input embeddings, but DDP no longer
         # waits for D parameter gradients in this second backward pass.
+        self.toggle_optimizer(opt_main)
         self.set_discriminator_grad(False)
         feature = self.features(waveform)
         embedding = self.model(feature)
@@ -141,6 +144,7 @@ class Task(LightningModule):
         self.manual_backward(total_loss)
         opt_main.step()
         self.set_discriminator_grad(True)
+        self.untoggle_optimizer(opt_main)
 
         # Warmup LR
         if self.trainer.global_step < self.config['warmup_step']:
@@ -413,10 +417,7 @@ def cli_main():
     trainer = Trainer(
         strategy=DDPStrategy(
             find_unused_parameters=True,
-            # MLP-D is tiny and does not need the bucket-view optimization that
-            # was useful for the HuBERT discriminator. Keeping it off makes
-            # manual two-optimizer DDP less brittle across 2/4-GPU machines.
-            gradient_as_bucket_view=False,
+            gradient_as_bucket_view=True,
             static_graph=False,
         ),
         accelerator="gpu",
