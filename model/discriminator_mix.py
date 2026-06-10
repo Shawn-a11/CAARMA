@@ -116,76 +116,37 @@ class EnhancedResidualBlock(nn.Module):
 
 
 class MixupDiscriminator(nn.Module):
-    def __init__(self, hubert_model_name="/root/autodl-tmp/hubert-large", cache_dir="", proj_dim=256, emb_dim=192):
+    """Discriminator-only ablation: a plain MLP over speaker embeddings.
+
+    This removes the HuBERT/WavLM adapter + length-1 Transformer path while
+    keeping the rest of the 3.48 DDP baseline unchanged.
+    """
+
+    def __init__(self, cache_dir="", emb_dim=192, hidden_dim=256, **kwargs):
         super(MixupDiscriminator, self).__init__()
-        self.hubert = HubertModel.from_pretrained(hubert_model_name, cache_dir=cache_dir)
-        
-        # Freeze HuBERT backbone parameters to prevent DDP deadlock of unused parameters
-        for param in self.hubert.parameters():
-            param.requires_grad = False
-            
-        # For speaker recognition, layers 7-12 are most informative for speaker characteristics
-        hidden_size = self.hubert.config.hidden_size
-        self.projection_7 = spectral_norm(nn.Linear(hidden_size, proj_dim))
-        self.projection_9 = spectral_norm(nn.Linear(hidden_size, proj_dim))
-        self.projection_11 = spectral_norm(nn.Linear(hidden_size, proj_dim))
-        self.projection_12 = spectral_norm(nn.Linear(hidden_size, proj_dim))
-        
-        self.layer_norm = nn.LayerNorm(hidden_size)
-        
-        # Enhanced attention pooling with multi-head attention
-        self.attn_pool = MultiHeadAttentivePooling(hidden_size, num_heads=8)
-        
-        # Weighted layer combination
-        self.layer_weights = nn.Parameter(torch.ones(4))
-        
-        # Enhanced discriminator with residual connections
+        mid_dim = hidden_dim // 2
         self.discriminator = nn.Sequential(
-            ResidualBlock(proj_dim * 4, 512),
-            nn.LeakyReLU(negative_slope=0.2),
-            nn.Dropout(0.2),
-            ResidualBlock(512, 256),
+            nn.Linear(emb_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.LeakyReLU(negative_slope=0.2),
             nn.Dropout(0.1),
-            spectral_norm(nn.Linear(256, 1))
+            nn.Linear(hidden_dim, mid_dim),
+            nn.LayerNorm(mid_dim),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Dropout(0.1),
+            nn.Linear(mid_dim, 1),
         )
-        
-        # Improved adapter with skip connection
-        self.adapter = EnhancedAdapter(input_dim=emb_dim, hidden_dim=hidden_size)
-        
-    def forward(self, input_audio):
-        adapted_embeddings = self.adapter(input_audio)
-        if adapted_embeddings.dim() == 2:
-            adapted_embeddings = adapted_embeddings.unsqueeze(1)
-            
-        encoder_outputs = self.hubert.encoder(
-            hidden_states=adapted_embeddings,
-            output_hidden_states=True,
-            return_dict=True
+
+        n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print(
+            "[MLPDiscriminator] architecture: "
+            f"{emb_dim} -> {hidden_dim} -> {mid_dim} -> 1 "
+            "with LayerNorm + Dropout "
+            f"({n_params:,} trainable params)"
         )
-        hidden_states = encoder_outputs.hidden_states
-        
-        # Use higher layers (7, 9, 11, 12) which are better for speaker characteristics
-        layer_projections = []
-        for idx, (layer_idx, projection) in enumerate([
-            (7, self.projection_7),
-            (9, self.projection_9),
-            (11, self.projection_11),
-            (12, self.projection_12)
-        ]):
-            # Apply layer norm before projection
-            normalized = self.layer_norm(hidden_states[layer_idx])
-            # Apply attention pooling
-            pooled = self.attn_pool(normalized)
-            # Project with learned weight
-            projected = projection(pooled) * F.softmax(self.layer_weights, dim=0)[idx]
-            layer_projections.append(projected)
-            
-        # Weighted concatenation of layer projections
-        concat_proj = torch.cat(layer_projections, dim=-1)
-        
-        # Final discrimination
-        return self.discriminator(concat_proj)
+
+    def forward(self, embeddings):
+        return self.discriminator(embeddings)
 
 
 class HubertDiscriminator(nn.Module):
