@@ -7,9 +7,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .utils import accuracy
 from helper.mixup_avg import mixup_data_euc_avg
+from helper.speaker_meta import build_attr_map
 
 class amsoftmax_gan(nn.Module):
-    def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30, **kwargs):
+    def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30,
+                 mixup_constraint="none", train_csv=None, meta_csv=None, **kwargs):
         super(amsoftmax_gan, self).__init__()
 
         self.m = margin
@@ -23,14 +25,27 @@ class amsoftmax_gan(nn.Module):
         if torch.cuda.is_available():
             self.I = self.I.to('cuda:0')
 
+        # Attribute-constrained mixup: restrict synthetic-speaker pairing to
+        # same gender / nationality. None => original unconstrained mixup.
+        self.mixup_constraint = mixup_constraint
+        self.spk_attr = None
+        if mixup_constraint and mixup_constraint != "none":
+            assert train_csv and meta_csv, \
+                "mixup_constraint requires train_csv (dataset) and meta_csv in config"
+            # registered as a buffer so it moves with .to(device) / DDP
+            attr = build_attr_map(train_csv, meta_csv, num_classes,
+                                  attr=mixup_constraint)
+            self.register_buffer("spk_attr", attr)
+
         print('Initialised AM-Softmax m=%.3f s=%.3f'%(self.m, self.s))
         print('Embedding dim is {}, number of speakers is {}'.format(embedding_dim, num_classes))
+        print('Mixup constraint: %s' % (self.mixup_constraint,))
 
     def forward(self, x, label=None, flagSyn=False):
         assert x.size()[0] == label.size()[0]
         assert x.size()[1] == self.in_feats
         synthetic_embeddings,  y_combined , w_combined = mixup_data_euc_avg(
-            x, self.W, label
+            x, self.W, label, spk_attr=self.spk_attr
             )
         if flagSyn:
             
