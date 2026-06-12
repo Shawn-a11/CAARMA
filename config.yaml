@@ -56,12 +56,15 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_mixup_gender_ddp4"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_mixup_nationality_ddp4"
 title: "caarma_mfa"
 
 # Attribute-constrained mixup: synthetic speakers are blended only within the
 # same attribute group.  "gender" | "nationality" | "none"
-mixup_constraint: "gender"
+# NOTE: VoxCeleb1 nationality is ~90% English-speaking (USA 64% alone), so this
+# constraint is weak/dominated — expected to land close to baseline. Kept as a
+# proxy for "same language family" since metadata has no language label.
+mixup_constraint: "nationality"
 # VoxCeleb1 metadata (VoxCeleb1 ID -> Gender / Nationality). On the server,
 # point this at the vox1_meta.csv copy alongside the dataset.
 meta_csv: "/root/autodl-tmp/voxcele1_dataset/vox1_meta.csv"
