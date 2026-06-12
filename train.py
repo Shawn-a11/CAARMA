@@ -46,20 +46,11 @@ class Task(LightningModule):
         self.trials = np.loadtxt(trial_path, str)
         self.config = config
         self.automatic_optimization = False
-        
-        self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
-        self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
 
-        # HuBERT backbone is now TRAINABLE (source-faithful), so it must NOT
-        # be excluded from DDP — its gradients are produced on every D step
-        # and need the all-reduce, otherwise the four replicas silently
-        # diverge. The old _ddp_params_and_buffers_to_ignore workaround only
-        # applied to the frozen-backbone setup; with requires_grad=True the
-        # backbone params follow the same toggle_optimizer path that already
-        # works for the adapter/projection/head params.
-
-        # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
-        self.lambda_adv = 0.25
+        # Plain baseline (paper Table 2 ID1, target 3.33% EER): encoder +
+        # AM-Softmax only. No discriminator, no synthetic loss, no mixup —
+        # this isolates whether our underlying recipe matches the authors'
+        # baseline before any CAARMA component is added.
 
     def normalize(self, x):
         x_norm = torch.norm(x, p=2, dim=1, keepdim=True).clamp(min=1e-12)
@@ -69,88 +60,20 @@ class Task(LightningModule):
         feature = self.features(x)
         embedding = self.model(feature)
         return embedding
-    def adjust_lambda_adv(self, am_loss, g_loss):
-        # Source-faithful control law (massabaali7/CAARMA train.py adjust_weight):
-        # cap=0.01, floor=0.0001. This caps the adversarial weight at ~1% of total
-        # loss so L_G stays a weak regularizer rather than competing with L_real.
-        # Combined with the per-batch reset (lambda_adv = 0.25 at start of every
-        # G step) the effective trajectory is the discrete {0.01, 0.225, 0.25}
-        # set from source code, not our previous compounding range [0.01, 0.5].
-        loss_ratio = am_loss.detach() / (g_loss.detach() + 1e-8)
-        if loss_ratio > 1.5:
-            self.lambda_adv = min(self.lambda_adv * 1.1, 0.01)
-        elif loss_ratio < 0.5:
-            self.lambda_adv = max(self.lambda_adv * 0.9, 0.0001)
-    
+
     def training_step(self, batch, batch_idx):
-        opt_main, opt_d = self.optimizers()
+        opt_main = self.optimizers()
 
         waveform = batch['waveform']
         label = batch['mapped_id']
 
-        # ── Algorithm 2, Step 1: Update Discriminator every batch ────────
-        # Encoder runs inside no_grad so DDP never registers encoder params
-        # as "used in this forward" — avoids stale All-Reduce deadlock.
-        # D forward uses a SINGLE concatenated call so DDP sees discriminator
-        # used exactly once per backward (prevents bucket reducer confusion).
-        self.toggle_optimizer(opt_d)
-        with torch.no_grad():
-            feature_d = self.features(waveform)
-            embedding_d = self.model(feature_d)
-            _, _, synth_for_d = self.loss(embedding_d, label)
-
-        opt_d.zero_grad()
-        B = embedding_d.size(0)
-        combined_d = torch.cat(
-            [self.normalize(embedding_d), self.normalize(synth_for_d)], dim=0
-        )
-        preds_d_all = self.discriminator(combined_d)
-        real_preds, fake_preds_d = preds_d_all[:B], preds_d_all[B:]
-        # Paper Eq.(1): L_D = BCE(D(e),1) + BCE(D(e_syn),0)
-        d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
-                  self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
-        self.manual_backward(d_loss)
-        opt_d.step()
-        self.untoggle_optimizer(opt_d)
-
-        # ── Algorithm 2, Step 2: Update M every batch ────────────────────
-        # Recompute embedding inside opt_main toggle so DDP only sees encoder
-        # params; discriminator params are frozen by toggle_optimizer.
-        # D forward uses ONE concatenated call (real + synthetic together).
-        self.toggle_optimizer(opt_main)
-
-        # Source-faithful: reset λ_adv to 0.25 at start of every G step. This
-        # turns adjust_lambda_adv into a discrete one-shot decision based on
-        # the current batch's am/g ratio, rather than a multiplicative drift
-        # that compounds across batches.
-        self.lambda_adv = 0.25
-
         feature = self.features(waveform)
         embedding = self.model(feature)
         opt_main.zero_grad()
-        amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
-        amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
+        amsoftmax_loss, acc, _ = self.loss(embedding, label)
 
-        # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
-        combined_g = torch.cat(
-            [self.normalize(synthetic_embeddings), self.normalize(embedding)], dim=0
-        )
-        preds_g_all = self.discriminator(combined_g)
-        fake_preds_g, real_preds_g = preds_g_all[:B], preds_g_all[B:]
-        g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
-                  self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
-
-        # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
-        self.adjust_lambda_adv(amsoftmax_loss, g_loss)
-
-        # Paper: L_total = L_real + (1/N)*L_syn + λ_adv * L_G
-        total_loss = (amsoftmax_loss
-                      + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
-                      + self.lambda_adv * g_loss)
-
-        self.manual_backward(total_loss)
+        self.manual_backward(amsoftmax_loss)
         opt_main.step()
-        self.untoggle_optimizer(opt_main)
 
         # Warmup LR
         if self.trainer.global_step < self.config['warmup_step']:
@@ -159,19 +82,24 @@ class Task(LightningModule):
                 pg['lr'] = lr_scale * self.learning_rate
 
         self.log('am_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
-        self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True, sync_dist=False)
+        # Zero placeholders keep the progress-bar schema identical to the
+        # CAARMA runs so parse_log_ddp.py and the existing CSV/plot tooling
+        # work unchanged.
+        self.log('am_loss_syn', 0.0, prog_bar=True, sync_dist=False)
         self.log('acc', acc, prog_bar=True, sync_dist=False)
-        self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
-        self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
-        self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
-        self.log('lambda_adv', self.lambda_adv, prog_bar=False, sync_dist=False)
+        self.log('g_loss', 0.0, prog_bar=True, sync_dist=False)
+        self.log('total_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
+        self.log('d_loss', 0.0, prog_bar=True, sync_dist=False)
                 
 
             
             
 
     def configure_optimizers(self):
-        # Modified learning rates and optimizer parameters
+        # Single optimizer: encoder + AM-Softmax weights. Same recipe as all
+        # CAARMA runs (AdamW 1e-3, wd 1e-7, 2k-step warmup, StepLR 4/0.5) so
+        # the baseline differs from them ONLY by the absence of the GAN and
+        # synthetic-loss terms.
         embedding_optimizer = AdamW(
             list(self.model.parameters())+list(self.loss.parameters()),
             lr=self.learning_rate,
@@ -179,38 +107,13 @@ class Task(LightningModule):
             betas=(0.9, 0.999)  # Standard Adam betas
         )
 
-        # Discriminator with two learning-rate groups:
-        # - HuBERT backbone at init_lr*0.01 = 1e-5, the source code's actual
-        #   discriminator LR (its comment "Significantly reduced 2e-4" means
-        #   2e-4 was reduced to 1e-5). A 315M pretrained backbone needs the
-        #   small SSL-finetune rate or its features get destroyed.
-        # - adapter/projections/head at the paper's 2e-4. Our runs where ALL
-        #   D params sat at 1e-5 (01, 04) collapsed to the trivial
-        #   equilibrium (d_loss pinned at ln2 — chance level) and scored
-        #   worst; the head needs 2e-4 to keep the GAN game alive.
-        hubert_param_ids = {id(p) for p in self.discriminator.hubert.parameters()}
-        head_params = [p for p in self.discriminator.parameters()
-                       if id(p) not in hubert_param_ids]
-        discriminator_optimizer = AdamW(
-            [
-                {"params": head_params, "lr": 2e-4},
-                {"params": list(self.discriminator.hubert.parameters()),
-                 "lr": self.learning_rate * 0.01},
-            ],
-            weight_decay=self.weight_decay,
-            betas=(0.5, 0.999)
-        )
-        
         embedding_scheduler = StepLR(embedding_optimizer, step_size = 4, gamma=0.5)
-        discriminator_scheduler = StepLR(discriminator_optimizer, step_size = 4, gamma=0.5)
 
-        return [embedding_optimizer, discriminator_optimizer], \
-            [embedding_scheduler, discriminator_scheduler]
+        return [embedding_optimizer], [embedding_scheduler]
 
     def on_train_epoch_end(self):
-        main_scheduler, d_scheduler = self.lr_schedulers()
+        main_scheduler = self.lr_schedulers()
         main_scheduler.step()
-        d_scheduler.step()
     def on_test_epoch_start(self):
         return self.on_validation_epoch_start()
     

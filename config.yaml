@@ -49,7 +49,7 @@ augmentations: {
 }
 dataset: "/root/autodl-tmp/CAARMA/voxceleb_full.csv"
 USE_WANDB: False;
-criterion: 'AMSoftmaxGAN'
+criterion: 'AMSoftmax'
 init_lr: 0.001
 epochs: 30
 weight_decay: 0.0000001
@@ -64,7 +64,7 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_repro309_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_baseline_plain_ddp"
 title: "caarma_mfa"
 
 # Seed for reproducibility — fed to pytorch_lightning.seed_everything
