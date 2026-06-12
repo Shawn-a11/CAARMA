@@ -462,23 +462,18 @@ def cli_main():
         deterministic=False,
     )
 
-    #————————————————————————————————————————————————————————————————————————
-    #trainer.fit(final_project, datamodule=dataloader)
-
-    # if config.get('checkpoint_path'):
-    #     trainer.fit(
-    #         final_project, 
-    #         datamodule=dataloader, 
-    #         ckpt_path=config['checkpoint_path']
-    #     )
-    # else:
-
-    #     trainer.fit(final_project, datamodule=dataloader)
-    
-    trainer.fit(final_project, datamodule=dataloader)
-
-    #print("\n--- Running Immediate Validation ---")
-    #trainer.validate(final_project, datamodule=dataloader, ckpt_path=config['checkpoint_path'])
+    # mode: "fit" (default) trains; "validate" only scores an existing
+    # checkpoint (set checkpoint_path) against the current trial_path —
+    # used after training to re-score the best ckpt on the original
+    # veri_test.txt without touching code.
+    mode = str(config.get('mode', 'fit'))
+    if mode == 'validate':
+        assert config['checkpoint_path'] != 'None', \
+            "mode: validate requires checkpoint_path in config.yaml"
+        trainer.validate(final_project, datamodule=dataloader,
+                         ckpt_path=config['checkpoint_path'])
+    else:
+        trainer.fit(final_project, datamodule=dataloader)
     
 if __name__ == "__main__":
     cli_main()
