@@ -50,17 +50,13 @@ class Task(LightningModule):
         self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
 
-        # Tell DDP to completely ignore HuBERT backbone params/buffers.
-        # HuBERT is frozen (requires_grad=False) but its 315M params still
-        # appear in DDP's autograd traversal under find_unused_parameters=True,
-        # causing intermittent deadlocks. Excluding them removes the overhead
-        # and the bucket-reducer race condition entirely.
-        hubert_ignore = []
-        for name, _ in self.discriminator.hubert.named_parameters():
-            hubert_ignore.append(f"discriminator.hubert.{name}")
-        for name, _ in self.discriminator.hubert.named_buffers():
-            hubert_ignore.append(f"discriminator.hubert.{name}")
-        self._ddp_params_and_buffers_to_ignore = hubert_ignore
+        # HuBERT backbone is now TRAINABLE (source-faithful), so it must NOT
+        # be excluded from DDP — its gradients are produced on every D step
+        # and need the all-reduce, otherwise the four replicas silently
+        # diverge. The old _ddp_params_and_buffers_to_ignore workaround only
+        # applied to the frozen-backbone setup; with requires_grad=True the
+        # backbone params follow the same toggle_optimizer path that already
+        # works for the adapter/projection/head params.
 
         # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
         self.lambda_adv = 0.25
@@ -183,11 +179,24 @@ class Task(LightningModule):
             betas=(0.9, 0.999)  # Standard Adam betas
         )
 
-        # Lower learning rate for discriminator
+        # Discriminator with two learning-rate groups:
+        # - HuBERT backbone at init_lr*0.01 = 1e-5, the source code's actual
+        #   discriminator LR (its comment "Significantly reduced 2e-4" means
+        #   2e-4 was reduced to 1e-5). A 315M pretrained backbone needs the
+        #   small SSL-finetune rate or its features get destroyed.
+        # - adapter/projections/head at the paper's 2e-4. Our runs where ALL
+        #   D params sat at 1e-5 (01, 04) collapsed to the trivial
+        #   equilibrium (d_loss pinned at ln2 — chance level) and scored
+        #   worst; the head needs 2e-4 to keep the GAN game alive.
+        hubert_param_ids = {id(p) for p in self.discriminator.hubert.parameters()}
+        head_params = [p for p in self.discriminator.parameters()
+                       if id(p) not in hubert_param_ids]
         discriminator_optimizer = AdamW(
-            self.discriminator.parameters(),
-            lr= 2e-4, # Significantly reduced 2e-4
-            #self.learning_rate * 0.01,  
+            [
+                {"params": head_params, "lr": 2e-4},
+                {"params": list(self.discriminator.hubert.parameters()),
+                 "lr": self.learning_rate * 0.01},
+            ],
             weight_decay=self.weight_decay,
             betas=(0.5, 0.999)
         )
@@ -384,7 +393,10 @@ def cli_main():
         print("load weight from {}".format(config['checkpoint_path']))
         
     assert config['save_dir'] is not None
-    checkpoint_callback = ModelCheckpoint(monitor='cosine_eer', save_top_k=3,
+    # save_top_k=1: with the HuBERT backbone now trainable, each checkpoint
+    # carries its AdamW state (~2.5 GB extra), so keeping 3+last would eat
+    # >15 GB of /root/autodl-tmp.
+    checkpoint_callback = ModelCheckpoint(monitor='cosine_eer', save_top_k=1,
             mode='min', filename="{epoch}_{cosine_eer:.2f}", dirpath=config['save_dir'],
             save_last=True)
 

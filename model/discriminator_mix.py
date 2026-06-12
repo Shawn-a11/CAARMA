@@ -119,11 +119,14 @@ class MixupDiscriminator(nn.Module):
     def __init__(self, hubert_model_name="/root/autodl-tmp/hubert-large", cache_dir="", proj_dim=256, emb_dim=192):
         super(MixupDiscriminator, self).__init__()
         self.hubert = HubertModel.from_pretrained(hubert_model_name, cache_dir=cache_dir)
-        
-        # Freeze HuBERT backbone parameters to prevent DDP deadlock of unused parameters
-        for param in self.hubert.parameters():
-            param.requires_grad = False
-            
+
+        # Source-faithful: the HuBERT backbone is TRAINABLE, exactly as in
+        # massabaali7/CAARMA, where discriminator_optimizer = AdamW(
+        # self.discriminator.parameters()) covers all 315M backbone params.
+        # Our earlier freeze (a DDP-deadlock workaround) silently changed the
+        # discriminator the paper describes; every prior run used a frozen
+        # backbone and none reached the paper's 3.09% EER.
+
         # For speaker recognition, layers 7-12 are most informative for speaker characteristics
         hidden_size = self.hubert.config.hidden_size
         self.projection_7 = spectral_norm(nn.Linear(hidden_size, proj_dim))
