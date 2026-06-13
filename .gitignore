@@ -8,3 +8,7 @@ __pycache__/
 train_log.txt
 nohup.out
 voxceleb_full.csv
+viz/figures/
+viz/outputs/
+viz/checks/
+viz/models/

@@ -28,7 +28,6 @@ class amsoftmax_gan(nn.Module):
         # Attribute-constrained mixup: restrict synthetic-speaker pairing to
         # same gender / nationality. None => original unconstrained mixup.
         self.mixup_constraint = mixup_constraint
-        self.spk_attr = None
         if mixup_constraint and mixup_constraint != "none":
             assert train_csv and meta_csv, \
                 "mixup_constraint requires train_csv (dataset) and meta_csv in config"
@@ -36,6 +35,8 @@ class amsoftmax_gan(nn.Module):
             attr = build_attr_map(train_csv, meta_csv, num_classes,
                                   attr=mixup_constraint)
             self.register_buffer("spk_attr", attr)
+        else:
+            self.spk_attr = None
 
         print('Initialised AM-Softmax m=%.3f s=%.3f'%(self.m, self.s))
         print('Embedding dim is {}, number of speakers is {}'.format(embedding_dim, num_classes))
