@@ -97,10 +97,16 @@ class Task(LightningModule):
         # Encoder is detached from the D update; only D receives gradients.
         self.toggle_optimizer(opt_d)
         self.set_discriminator_grad(True)
-        with torch.no_grad():
-            feature_d = self.features(waveform)
-            embedding_d = self.model(feature_d)
-            _, _, synth_for_d = self.loss(embedding_d, label)
+        model_was_training = self.model.training
+        self.model.eval()
+        try:
+            with torch.no_grad():
+                feature_d = self.features(waveform)
+                embedding_d = self.model(feature_d)
+                _, _, synth_for_d = self.loss(embedding_d, label)
+        finally:
+            if model_was_training:
+                self.model.train()
 
         opt_d.zero_grad()
         B = embedding_d.size(0)
