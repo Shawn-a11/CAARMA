@@ -76,12 +76,16 @@ class Task(LightningModule):
         embedding = self.model(feature)
         return embedding
     def adjust_lambda_adv(self, am_loss, g_loss):
-        # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
+        # Source-faithful control law (massabaali7/CAARMA adjust_weight):
+        # cap=0.01, floor=0.0001. Earlier this branch carried cap=0.5 — a
+        # regression introduced by commit f18cf61, NOT the GitHub source value.
+        # Combined with the per-batch reset to 0.25 (in the M step) the
+        # effective trajectory is the discrete {0.01, 0.225, 0.25} set.
         loss_ratio = am_loss.detach() / (g_loss.detach() + 1e-8)
         if loss_ratio > 1.5:
-            self.lambda_adv = min(self.lambda_adv * 1.1, 0.5)
+            self.lambda_adv = min(self.lambda_adv * 1.1, 0.01)
         elif loss_ratio < 0.5:
-            self.lambda_adv = max(self.lambda_adv * 0.9, 0.01)
+            self.lambda_adv = max(self.lambda_adv * 0.9, 0.0001)
     
     def training_step(self, batch, batch_idx):
         opt_main, opt_d = self.optimizers()
@@ -118,6 +122,12 @@ class Task(LightningModule):
         # waits for D parameter gradients in this second backward pass.
         self.toggle_optimizer(opt_main)
         self.set_discriminator_grad(False)
+
+        # Source-faithful: reset λ_adv to 0.25 at the start of every G step, so
+        # adjust_lambda_adv becomes a one-shot per-batch decision rather than a
+        # multiplicative drift that compounds and sticks at the floor.
+        self.lambda_adv = 0.25
+
         feature = self.features(waveform)
         embedding = self.model(feature)
         opt_main.zero_grad()
@@ -158,7 +168,8 @@ class Task(LightningModule):
         self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
-                
+        self.log('lambda_adv', self.lambda_adv, prog_bar=False, sync_dist=False)
+
 
             
             
