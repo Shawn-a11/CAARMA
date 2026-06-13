@@ -71,8 +71,13 @@ class Task(LightningModule):
         embedding = self.model(feature)
         opt_main.zero_grad()
         amsoftmax_loss, acc, _ = self.loss(embedding, label)
+        # ID2 (paper Table 2): + Synthetic Loss L_syn only.
+        # Mixup generates synthetic speakers; their AM-Softmax loss is added
+        # at weight 1/N_spk. NO discriminator, NO adversarial training.
+        amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
+        total_loss = amsoftmax_loss + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
 
-        self.manual_backward(amsoftmax_loss)
+        self.manual_backward(total_loss)
         opt_main.step()
 
         # Warmup LR
@@ -82,13 +87,12 @@ class Task(LightningModule):
                 pg['lr'] = lr_scale * self.learning_rate
 
         self.log('am_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
-        # Zero placeholders keep the progress-bar schema identical to the
-        # CAARMA runs so parse_log_ddp.py and the existing CSV/plot tooling
-        # work unchanged.
-        self.log('am_loss_syn', 0.0, prog_bar=True, sync_dist=False)
+        self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True, sync_dist=False)
         self.log('acc', acc, prog_bar=True, sync_dist=False)
+        # g_loss/d_loss are 0.0 placeholders (no adversarial training in ID2)
+        # so parse_log_ddp.py and the CSV/plot tooling keep the same schema.
         self.log('g_loss', 0.0, prog_bar=True, sync_dist=False)
-        self.log('total_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
+        self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         self.log('d_loss', 0.0, prog_bar=True, sync_dist=False)
                 
 
