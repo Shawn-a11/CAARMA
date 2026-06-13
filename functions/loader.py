@@ -25,17 +25,13 @@ class super_dataset(LightningDataModule):
     def train_dataloader(self) -> DataLoader:
         # augmentation = Augmentation(add_noise=self.config['augmentations']['add_noise'], add_reverb=self.config['augmentations']['add_reverb'], drop_freq=self.config['augmentations']['drop_freq'], drop_chunk=self.config['augmentations']['drop_chunk'])
         train_dataset = Train_Dataset(self.config['dataset'], self.config['second'], do_augmentation=self.config['do_augmentation'], augmentation=None) #augmentation)
-        num_workers = self.config['num_workers']
-        mp_context = "spawn" if num_workers > 0 else None
-
         loader = torch.utils.data.DataLoader(
                 train_dataset,
                 shuffle=True,
-                num_workers=num_workers,
+                num_workers=self.config['num_workers'],
                 batch_size=self.config['batch_size'],
                 pin_memory=True,
                 drop_last=False,
-                multiprocessing_context=mp_context,
                 )
         return loader
 
@@ -51,10 +47,8 @@ class super_dataset(LightningDataModule):
         loader = torch.utils.data.DataLoader(eval_dataset,
                                              num_workers=10,
                                              shuffle=False, 
-                                             batch_size=1,
-                                             multiprocessing_context="spawn")
+                                             batch_size=1)
         return loader
 
     def test_dataloader(self) -> DataLoader:
         return self.val_dataloader()
-

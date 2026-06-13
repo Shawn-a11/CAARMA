@@ -11,11 +11,11 @@ from sklearn.utils import shuffle
 from torch.utils.data import DataLoader, Dataset
 import soundfile as sf
 
-import torchaudio
-
 def load_audio(filename, second=3):
-    waveform, sr = torchaudio.load(filename)
-    waveform = waveform.squeeze(0)  # Remove channel dimension if mono
+    data, sr = sf.read(filename, dtype='float32')
+    if len(data.shape) > 1:
+        data = data[:, 0]
+    waveform = torch.from_numpy(data)
 
     audio_length = waveform.shape[0]
 
@@ -113,7 +113,7 @@ class Evaluation_Dataset(Dataset):
         waveform_lengths = torch.tensor(waveform_lengths)
         audio_paths = [item['path'] for item in batch]
 
-        audios_padded = torch.Floattensor(audios)
+        audios_padded = torch.FloatTensor(audios)
 
         return {
             "waveform": audios_padded,
