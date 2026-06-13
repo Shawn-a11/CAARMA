@@ -21,7 +21,7 @@ from feature.build_feature import build_feature
 from functions.loader import super_dataset
 from criterion.build_criterion import build_criterion
 from model.model_build import build_model
-from model.discriminator_mix import MixupDiscriminator
+from model.discriminator_mix import Discriminator_spectral
 from helper.mixup_avg import mixup_data_euc_avg
 
 from scipy.interpolate import interp1d
@@ -47,7 +47,10 @@ class Task(LightningModule):
         self.config = config
         self.automatic_optimization = False
         
-        self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
+        # ID3 (paper Table 2): Adversarial Training with a SIMPLE spectral-norm
+        # discriminator (192->128->1), NOT the HuBERT Mixup Discriminator (MD).
+        # This is the "AT" column without "MD".
+        self.discriminator = Discriminator_spectral(config['embedding_dim']).train()
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
 
         # HuBERT/WavLM discriminators need their frozen SSL backbone excluded
@@ -132,7 +135,8 @@ class Task(LightningModule):
         embedding = self.model(feature)
         opt_main.zero_grad()
         amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
-        amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
+        # ID3: AT only — mixup still produces e_syn for the adversarial game,
+        # but its synthetic AM-Softmax loss (L_syn) is NOT added to total.
 
         # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
         combined_g = torch.cat(
@@ -146,10 +150,8 @@ class Task(LightningModule):
         # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
         self.adjust_lambda_adv(amsoftmax_loss, g_loss)
 
-        # Paper: L_total = L_real + (1/N)*L_syn + λ_adv * L_G
-        total_loss = (amsoftmax_loss
-                      + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
-                      + self.lambda_adv * g_loss)
+        # ID3 paper Table 2 (AT only): L_total = L_real + λ_adv * L_G  (no L_syn)
+        total_loss = amsoftmax_loss + self.lambda_adv * g_loss
 
         self.manual_backward(total_loss)
         opt_main.step()
@@ -163,7 +165,7 @@ class Task(LightningModule):
                 pg['lr'] = lr_scale * self.learning_rate
 
         self.log('am_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
-        self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True, sync_dist=False)
+        self.log('am_loss_syn', 0.0, prog_bar=True, sync_dist=False)  # ID3: no L_syn
         self.log('acc', acc, prog_bar=True, sync_dist=False)
         self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
