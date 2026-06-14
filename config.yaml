@@ -57,7 +57,7 @@ trial_path: "/root/autodl-tmp/voxcele1_dataset/voxceleb1_test_v2.txt"
 root: "/root/autodl-tmp/voxcele1_dataset/test/wav/"
 warmup_step: 2000
 batch_size: 50
-num_workers: 4
+num_workers: 8
 second: 3
 do_augmentation: False
 num_spk: 1211
