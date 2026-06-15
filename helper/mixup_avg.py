@@ -40,13 +40,20 @@ def mixup_data_euc_avg(x, W, labels):
     set_label = list(set(labels.cpu().detach().numpy()))
     dic_spk = {}
     for single_spk in set_label:
-        distances = [torch.dist(W[:, single_spk], W[:, speaker]) for speaker in set_label if single_spk != speaker]
+        # Bug A fix: distances is built over a self-EXCLUDED list, so argmin's
+        # index must index that SAME list (`candidates`), not set_label (which
+        # includes self) -> the old set_label[...] was off-by-one (matched the
+        # true NN only ~half the time). Only the indexed list changes; the
+        # fallback is kept as a harmless guard (never fires now: candidates
+        # excludes self).
+        candidates = [speaker for speaker in set_label if single_spk != speaker]
+        distances = [torch.dist(W[:, single_spk], W[:, speaker]) for speaker in candidates]
         closest_neighbor_index = torch.argmin(torch.tensor(distances))
-        closest_speaker = set_label[closest_neighbor_index]
+        closest_speaker = candidates[closest_neighbor_index]
         if single_spk == closest_speaker.item():
             sorted_distances, sorted_indices = torch.sort(torch.tensor(distances))
             second_closest_neighbor_index = sorted_indices[1]
-            second_closest_speaker = set_label[second_closest_neighbor_index]
+            second_closest_speaker = candidates[second_closest_neighbor_index]
             dic_spk[single_spk] = second_closest_speaker.item()
         else:
             dic_spk[single_spk] = closest_speaker.item()
@@ -58,7 +65,9 @@ def mixup_data_euc_avg(x, W, labels):
     for i in range(batch_size):
         l1 = labels[i].item()
         l2 = dic_spk[l1]
-        dictidx = int(str(int(l1)) + str(int(l2)))
+        # Bug B fix: unordered pair key merges mutual NN (i,j)&(j,i) into ONE
+        # synthetic class (their midpoint is identical -> cos=1 otherwise).
+        dictidx = (min(int(l1), int(l2)), max(int(l1), int(l2)))
         if dictidx not in newlabel:
             newlabel[dictidx] = labelid
             pair_l1.append(l1)
