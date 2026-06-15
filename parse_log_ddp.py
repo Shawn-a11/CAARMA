@@ -1,17 +1,25 @@
-"""Parse a 4-GPU DDP training log (default: train_ddp4.log).
+"""Unified training-log parser (replaces parse_log.py + parse_log_algo2.py).
 
-Behaviour mirrors parse_log_algo2.py — same epoch / EER / minDCF regexes —
-but additionally:
-  * defaults to the DDP log filename and CSV name
-  * detects and reports the number of DDP ranks
-  * silently dedups the duplicated progress-bar lines tqdm prints under DDP
+All three legacy parsers shared identical epoch / EER / minDCF regexes; this is
+the single parametrised version. It handles single-GPU and 4-GPU DDP logs alike:
+DDP rank detection is automatic and harmless on non-DDP logs, and the duplicate
+progress-bar rows tqdm prints under DDP are silently de-duplicated.
+
+Usage:
+    python parse_log_ddp.py LOGFILE                       # print table only
+    python parse_log_ddp.py LOGFILE --csv OUT.csv         # + append new epochs
+    python parse_log_ddp.py LOGFILE --csv OUT.csv --overwrite   # rewrite CSV
+
+CSV is append-safe by default (only epochs not already present are added, so it
+is safe to re-run during training). --overwrite rewrites the whole file, e.g.
+after re-parsing a corrected log.
 """
 import re
 import csv
 import os
 
 
-def parse_log(log_path, output_csv=None):
+def parse_log(log_path, output_csv=None, overwrite=False):
     epoch_pattern = re.compile(
         r'Epoch (\d+):.*?'
         r'am_loss=([\d.]+).*?'
@@ -112,39 +120,47 @@ def parse_log(log_path, output_csv=None):
               f"{r['acc']:>7.2f} {r['g_loss']:>8.3f} {r['d_loss']:>8.3f} "
               f"{r['total_loss']:>11.3f} {eer_s:>8} {dcf2_s:>8} {dcf3_s:>8}")
 
-    # ── Append-safe CSV write ────────────────────────────────────────────
+    # ── CSV write ─────────────────────────────────────────────────────────
     if output_csv:
         fieldnames = ['epoch', 'am_loss', 'am_loss_syn', 'acc', 'g_loss',
                       'd_loss', 'total_loss', 'eer', 'mindcf_2', 'mindcf_3']
 
-        existing_epochs = set()
-        if os.path.exists(output_csv):
-            with open(output_csv, 'r', newline='') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    existing_epochs.add(int(row['epoch']))
-
-        new_rows = [r for r in results if r['epoch'] not in existing_epochs]
-
-        if new_rows:
-            write_header = not os.path.exists(output_csv)
-            with open(output_csv, 'a', newline='') as f:
+        if overwrite:
+            with open(output_csv, 'w', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
-                if write_header:
-                    writer.writeheader()
-                writer.writerows(new_rows)
-            print(f"\nAppended {len(new_rows)} new epoch(s) to {output_csv}")
+                writer.writeheader()
+                writer.writerows(results)
+            print(f"\nWrote {len(results)} epoch(s) to {output_csv} (overwrite)")
         else:
-            print(f"\nNo new epochs to append (all already in {output_csv})")
+            existing_epochs = set()
+            if os.path.exists(output_csv):
+                with open(output_csv, 'r', newline='') as f:
+                    for row in csv.DictReader(f):
+                        existing_epochs.add(int(row['epoch']))
+            new_rows = [r for r in results if r['epoch'] not in existing_epochs]
+            if new_rows:
+                write_header = not os.path.exists(output_csv)
+                with open(output_csv, 'a', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    if write_header:
+                        writer.writeheader()
+                    writer.writerows(new_rows)
+                print(f"\nAppended {len(new_rows)} new epoch(s) to {output_csv}")
+            else:
+                print(f"\nNo new epochs to append (all already in {output_csv})")
 
     return results
 
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='Parse 4-GPU DDP training log.')
-    parser.add_argument('log_file', nargs='?', default='train_ddp4.log')
+    parser = argparse.ArgumentParser(
+        description='Unified single-GPU / 4-GPU DDP training-log parser.')
+    parser.add_argument('log_file', nargs='?', default='train_ddp4.log',
+                        help='training log to parse (default: train_ddp4.log)')
     parser.add_argument('--csv', default=None, metavar='OUTPUT.csv',
-                        help='append-safe CSV output (default: none)')
+                        help='write metrics to CSV (append-safe by default)')
+    parser.add_argument('--overwrite', action='store_true',
+                        help='rewrite the CSV instead of appending new epochs')
     args = parser.parse_args()
-    parse_log(args.log_file, args.csv)
+    parse_log(args.log_file, args.csv, args.overwrite)

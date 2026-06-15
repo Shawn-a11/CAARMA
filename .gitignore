@@ -8,3 +8,4 @@ __pycache__/
 train_log.txt
 nohup.out
 voxceleb_full.csv
+.DS_Store
