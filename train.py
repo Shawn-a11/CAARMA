@@ -62,6 +62,14 @@ class Task(LightningModule):
 
         # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
         self.lambda_adv = 0.25
+        # Source-faithful pretrain phase: first `pretrain_eps` epochs use a weak
+        # fixed adversarial weight (λ_adv=0.0005) to let the encoder + D warm up
+        # before strong ratio-based adjustment kicks in. Matches massabaali7/CAARMA
+        # (pretrain_eps=15). We keep the DDP-safe Algorithm-2 step structure and
+        # only change the λ_adv SCHEDULE (no 5:1 G:D ratio, no d_loss/2 — those
+        # are separate source tricks already tested in ddp-source_code => 3.83%).
+        self.pretrain_eps = 15
+        self.pretrain_lambda = 0.0005
 
     def set_discriminator_grad(self, requires_grad):
         for param in self.discriminator.parameters():
@@ -129,10 +137,13 @@ class Task(LightningModule):
         self.toggle_optimizer(opt_main)
         self.set_discriminator_grad(False)
 
-        # Source-faithful: reset λ_adv to 0.25 at the start of every G step, so
-        # adjust_lambda_adv becomes a one-shot per-batch decision rather than a
-        # multiplicative drift that compounds and sticks at the floor.
-        self.lambda_adv = 0.25
+        # Source-faithful λ_adv schedule:
+        #   epoch <= pretrain_eps : weak fixed warm-up λ_adv = 0.0005
+        #   epoch >  pretrain_eps : reset to 0.25, then ratio-based adjust below
+        if self.current_epoch <= self.pretrain_eps:
+            self.lambda_adv = self.pretrain_lambda
+        else:
+            self.lambda_adv = 0.25
 
         feature = self.features(waveform)
         embedding = self.model(feature)
@@ -149,8 +160,10 @@ class Task(LightningModule):
         g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
                   self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
 
-        # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
-        self.adjust_lambda_adv(amsoftmax_loss, g_loss)
+        # Ratio-based adjustment only AFTER the pretrain warm-up (source-faithful:
+        # adjust_weight is gated on current_epoch > pretrain_eps).
+        if self.current_epoch > self.pretrain_eps:
+            self.adjust_lambda_adv(amsoftmax_loss, g_loss)
 
         # Paper: L_total = L_real + (1/N)*L_syn + λ_adv * L_G
         total_loss = (amsoftmax_loss
