@@ -45,7 +45,13 @@ def mixup_data_euc_avg(x, W, labels, spk_attr=None):
     for i in range(batch_size):
         l1 = labels[i].item()
         l2 = dic_spk[l1]
-        dictidx = int(str(int(l1)) + str(int(l2)))
+        # De-dup (Bug B): unordered pair key so mutual NN (i,j)&(j,i) -> ONE class.
+        # This branch already has CORRECT same-attribute NN pairing, so without
+        # this fix ~half the (within-gender) synthetic classes were identical
+        # twins (cos=1) that L_syn cannot separate -> the likely cause of the
+        # 3.74 regression. (Old key int(str(l1)+str(l2)) also had (1,25)/(12,5)
+        # collisions.)
+        dictidx = (min(int(l1), int(l2)), max(int(l1), int(l2)))
         if dictidx not in newlabel:
             newlabel[dictidx] = labelid
             w_mix[:, labelid] = (W[:, l1] + W[:, l2]) / 2
