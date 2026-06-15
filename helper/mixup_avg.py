@@ -11,17 +11,23 @@ def mixup_data_euc_avg(x, W, labels):
     dic_spk = {}
     distances = {}
     for single_spk in set_label:
-        # Bug-fix (nearest-neighbour index mismatch): the original code argmins
-        # over a list that EXCLUDES single_spk, but then indexes set_label (which
-        # INCLUDES it) with that filtered position -> off-by-one, so the chosen
-        # "nearest" was really (true_NN - 1) and matched the true NN only ~32% of
-        # the time (near-random pairing). We build the candidate list explicitly
-        # and index INTO IT, so closest_speaker is the genuine nearest neighbour.
-        # The self-match fallback is no longer needed (candidates excludes self).
+        # Bug A fix: distances is built over a self-EXCLUDED list, so argmin's
+        # index must index that SAME list (`candidates`), not set_label (which
+        # includes self) -> the old set_label[...] was off-by-one (matched the
+        # true NN only ~half the time). Only the indexed list changes; the
+        # fallback is kept as a harmless guard (never fires now: candidates
+        # excludes self).
         candidates = [speaker for speaker in set_label if single_spk != speaker]
         distances = [torch.dist(W[:, single_spk], W[:, speaker]) for speaker in candidates]
         closest_neighbor_index = torch.argmin(torch.tensor(distances))
-        dic_spk[single_spk] = int(candidates[closest_neighbor_index])
+        closest_speaker = candidates[closest_neighbor_index]
+        if single_spk == closest_speaker.item():
+            sorted_distances, sorted_indices = torch.sort(torch.tensor(distances))
+            second_closest_neighbor_index = sorted_indices[1]
+            second_closest_speaker = candidates[second_closest_neighbor_index]
+            dic_spk[single_spk] = second_closest_speaker.item()
+        else:
+            dic_spk[single_spk] = closest_speaker.item()
     lst_labels = labels.tolist()
     newlabel = {}
     labelid = 0
