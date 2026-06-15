@@ -78,6 +78,19 @@ def main(ckpt_path):
           f"p95={np.percentile(cos_syn_syn,95):.3f}  max={cos_syn_syn.max():.3f}")
     print("  -> high = synthetic classes collide with each OTHER (the real L_syn collapse)")
 
+    # DUPLICATE synthetic classes: mutual-NN pairs (i<->j) give W_{ij}=W_{ji},
+    # i.e. two synthetic classes with IDENTICAL prototypes (cos=1). L_syn (a
+    # syn-vs-syn softmax) cannot separate them -> persistent loss floor + grad
+    # noise. This fraction is the spike at cos=1; it quantifies how much a
+    # simple de-duplication (merge unordered pairs) would remove.
+    dup99 = float((cos_syn_syn > 0.99).mean())
+    dup999 = float((cos_syn_syn > 0.999).mean())
+    mutual = float((nn_idx[nn_idx] == np.arange(C)).mean())  # i == NN(NN(i))
+    print(f"DUPLICATE synth classes  cos>0.99 : {dup99*100:.1f}%   "
+          f"cos>0.999 : {dup999*100:.1f}%")
+    print(f"mutual-NN speakers (i==NN(NN(i)))  : {mutual*100:.1f}%   "
+          f"(these create identical synthetic prototypes -> de-dup target)")
+
     try:
         import matplotlib; matplotlib.use("Agg")
         import matplotlib.pyplot as plt
