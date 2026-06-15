@@ -11,25 +11,30 @@ def mixup_data_euc_avg(x, W, labels):
     dic_spk = {}
     distances = {}
     for single_spk in set_label:
-        distances = [torch.dist(W[:, single_spk], W[:,speaker]) for speaker in set_label if single_spk != speaker]
+        # Bug-fix (nearest-neighbour index mismatch): the original code argmins
+        # over a list that EXCLUDES single_spk, but then indexes set_label (which
+        # INCLUDES it) with that filtered position -> off-by-one, so the chosen
+        # "nearest" was really (true_NN - 1) and matched the true NN only ~32% of
+        # the time (near-random pairing). We build the candidate list explicitly
+        # and index INTO IT, so closest_speaker is the genuine nearest neighbour.
+        # The self-match fallback is no longer needed (candidates excludes self).
+        candidates = [speaker for speaker in set_label if single_spk != speaker]
+        distances = [torch.dist(W[:, single_spk], W[:, speaker]) for speaker in candidates]
         closest_neighbor_index = torch.argmin(torch.tensor(distances))
-        closest_speaker = set_label[closest_neighbor_index]            
-        if single_spk == closest_speaker.item():
-            sorted_distances, sorted_indices = torch.sort(torch.tensor(distances))
-            # Get the second minimum distance and its corresponding speaker
-            second_min_distance = sorted_distances[1]
-            second_closest_neighbor_index = sorted_indices[1]
-            second_closest_speaker = set_label[second_closest_neighbor_index]
-            dic_spk[single_spk] = second_closest_speaker.item()
-        else:
-            dic_spk[single_spk] = closest_speaker.item()
+        dic_spk[single_spk] = int(candidates[closest_neighbor_index])
     lst_labels = labels.tolist()
     newlabel = {}
     labelid = 0
     for i in range(batch_size):
         l1 = labels[i].item()
-        l2 = dic_spk[l1] 
-        dictidx = int(str(int(l1)) + str(int(l2)))
+        l2 = dic_spk[l1]
+        # De-duplicate synthetic classes: use an UNORDERED pair key so that
+        # mutual nearest neighbours (i<->j) map (i,j) and (j,i) to the SAME
+        # synthetic class. The old ordered key int(str(l1)+str(l2)) created two
+        # classes with identical prototypes (cos=1), which L_syn (a syn-vs-syn
+        # softmax) cannot separate -> persistent loss floor + gradient noise.
+        # (Also fixes the old key's accidental collisions, e.g. (1,25) vs (12,5).)
+        dictidx = (min(int(l1), int(l2)), max(int(l1), int(l2)))
         if dictidx not in newlabel:
             newlabel[dictidx] = labelid
             w_mix[:,labelid] = (W[:, l1] + W[:, l2])/2
