@@ -34,9 +34,20 @@ class amsoftmax_gan(nn.Module):
             )
         if flagSyn:
             
-            x_combined_0 = synthetic_embeddings.to(x.device) #torch.cat((x, synthetic_embeddings), dim=0)
-            w_combined_0 = w_combined.to(x.device) #torch.cat((self.W.to(x.device), w_combined.to(x.device)), dim=1)
-            y_combined_0 = y_combined.to(x.device) #torch.cat((label.to(x.device), y_combined.to(x.device)), dim=0)
+            # joint-L_syn: put the REAL prototypes W into the synthetic-class
+            # softmax denominator (as negatives), so each synthetic embedding
+            # (~ midpoint of a speaker pair) must be separable from real
+            # speakers too. This directly pushes the nearest real prototypes
+            # apart (margin), instead of the original syn-vs-syn-only softmax
+            # where synthetic classes never contrast against real speakers.
+            # Synthetic labels are offset by num_real so they index the
+            # synthetic columns, not the first real-speaker columns. Only the
+            # synthetic embeddings are classified here (L_real covers the real
+            # ones, so we avoid double-counting).
+            num_real = self.W.shape[1]
+            x_combined_0 = synthetic_embeddings.to(x.device)
+            w_combined_0 = torch.cat((self.W.to(x.device), w_combined.to(x.device)), dim=1)
+            y_combined_0 = (y_combined + num_real).to(x.device)
 
             x_norm = torch.norm(x_combined_0, p=2, dim=1, keepdim=True).clamp(min=1e-12)
             x_norm = torch.div(x_combined_0, x_norm)
