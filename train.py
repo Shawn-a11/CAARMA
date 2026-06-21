@@ -93,6 +93,14 @@ class Task(LightningModule):
         waveform = batch['waveform']
         label = batch['mapped_id']
 
+        # Margin curriculum: ramp the AM-Softmax margin linearly 0 -> margin_final
+        # over the first margin_warmup_epochs, then hold. Easier early optimisation
+        # (no margin), tightening as training proceeds. loss and loss_syn are the
+        # same module, so setting loss.m updates both L_real and L_syn.
+        m_final = self.config.get('margin_final', 0.2)
+        warmup = max(int(self.config.get('margin_warmup_epochs', 10)), 1)
+        self.loss.m = min(m_final, m_final * (self.current_epoch / warmup))
+
         # ── Algorithm 2, Step 1: Update Discriminator every batch ────────
         # Encoder is detached from the D update; only D receives gradients.
         self.toggle_optimizer(opt_d)
