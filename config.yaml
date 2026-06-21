@@ -31,8 +31,8 @@
 
 # # ECAPA-LARGE WAS USED 
 
-model: "MFA-CONFORMER"
-features: "Fbank"
+model: "REDIMNET-B6"
+features: "Passthrough"
 augmentations: {
   add_noise: False,
   add_reverb: False,
@@ -56,5 +56,5 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_joint_lsyn_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_redimnet_faithful_ddp"
 title: "caarma_mfa"

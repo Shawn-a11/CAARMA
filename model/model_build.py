@@ -2,24 +2,25 @@ from .ECAPA_TDNN import ecapa_tdnn, ecapa_tdnn_large
 from .MFA_Conformer import conformer_cat
 from .Raw_Net import RawNet3, Bottle2neck
 from .ska_tdnn import SKA_MainModel
+from .redimnet import ReDimNetB6
 
 def build_model(config, device):
     if config['model'] == 'ECAPA':
         model = ecapa_tdnn(n_mels=80, embedding_dim=192, channel=512)
-    
+
     elif config['model'] == 'MFA-CONFORMER':
-        model = conformer_cat(n_mels=80, num_blocks=6, output_size=256, 
+        model = conformer_cat(n_mels=80, num_blocks=6, output_size=256,
         embedding_dim=192, input_layer="conv2d2", pos_enc_layer_type="rel_pos").to(device)
-        
+
     elif config['model'] == 'ECAPA-LARGE':
         model = ecapa_tdnn_large(n_mels=80, embedding_dim=192, channel=1024)
-        
+
     elif config['model'] == 'RAWNET3':
         model = RawNet3(
-        Bottle2neck, 
-        model_scale=8, 
-        context=True, 
-        summed=True, 
+        Bottle2neck,
+        model_scale=8,
+        context=True,
+        summed=True,
         nOut=256,
         encoder_type="ECA",
         log_sinc=True,
@@ -27,11 +28,17 @@ def build_model(config, device):
         out_bn=True,
         sinc_stride=10,
         )
-        
+
     elif config['model'] == 'SKA_TDNN':
         model = SKA_MainModel(eca_c=1024, eca_s=8, log_input=True, num_mels=80, num_out=192, pooling='CCSP')
 
-    else: 
+    elif config['model'] == 'REDIMNET-B6':
+        # ReDimNet-b6 from IDRnD (INTERSPEECH 2024), loaded via torch.hub.
+        # Trained from scratch (pretrained=False) for fair comparison with
+        # MFA-Conformer baseline under CAARMA's L_syn + AT + MD pipeline.
+        model = ReDimNetB6(n_mels=80, embedding_dim=192, pretrained=False).to(device)
+
+    else:
         raise NotImplementedError
 
     return model
