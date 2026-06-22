@@ -56,7 +56,7 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_mixup_gender_ddp4"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_gender_faithful_ddp"
 title: "caarma_mfa"
 
 # Attribute-constrained mixup: synthetic speakers are blended only within the

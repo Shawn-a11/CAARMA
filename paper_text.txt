@@ -1,0 +1,995 @@
+
+--- PAGE 1 ---
+CAARMA: Class Augmentation with Adversarial Mixup Regularization
+Massa Baali, Xiang Li, Hao Chen, Syed Abdul Hannan, Rita Singh, Bhiksha Raj
+Carnegie Mellon University
+mbaali@cs.cmu.edu
+Abstract
+Speaker verification is a typical zero-shot learn-
+ing task, where inference of unseen classes is
+performed by comparing embeddings of test
+instances to known examples. The models per-
+forming inference must hence naturally gen-
+erate embeddings that cluster same-class in-
+stances compactly, while maintaining separa-
+tion across classes. In order to learn to do so,
+they are typically trained on a large number
+of classes (speakers), often using specialized
+losses. However real-world speaker datasets of-
+ten lack the class diversity needed to effectively
+learn this in a generalizable manner. We intro-
+duce CAARMA, a class augmentation frame-
+work that addresses this problem by generating
+synthetic classes through data mixing in the
+embedding space, expanding the number of
+training classes. To ensure the authenticity of
+the synthetic classes we adopt a novel adversar-
+ial refinement mechanism that minimizes cate-
+gorical distinctions between synthetic and real
+classes. We evaluate CAARMA on multiple
+speaker verification tasks, as well as other rep-
+resentative zero-shot comparison-based speech
+analysis tasks and obtain consistent improve-
+ments: our framework demonstrates a signif-
+icant improvement of 8% over all baseline
+models. The code is available at: https:
+//github.com/massabaali7/CAARMA/
+1 Introduction
+Speaker verification is fundamentally a zero-shot
+learning (ZSL) task, where verification is accom-
+plished by comparing embeddings from enrollment
+and verification samples without the need for fur-
+ther training (Wan et al., 2018). This process
+aligns with the principles of ZSL, where models
+are expected to operate effectively on unseen data.
+Therefore, while the following discussion is framed
+within the broader context of ZSL, it is specifically
+tailored to address the challenges in speaker verifi-
+cation.
+Figure 1: (a) When trained with fewer classes the model
+can spread the embeddings of individual classes out
+while still learning to classify the training data accu-
+rately and with large margins. This will not, however
+translate to compact representations for newer unseen
+classes. (b) With additional synthetic classes (shaded
+grey), the model must now learn to compact classes
+more. This will translate to more compact unseen
+classes as well.
+To address the challenge of limited class diver-
+sity in training datasets, a common issue in speaker
+verification, we propose a novel augmentation-
+based training paradigm. This approach leverages
+synthetic data augmentation to enhance the robust-
+ness and generalization capabilities of speaker ver-
+ification systems, particularly in low-diversity en-
+vironments. Our method not only stays true to the
+essence of ZSL by facilitating effective generaliza-
+tion to new speakers but also introduces a practical
+solution to overcome the inherent limitations of
+traditional training datasets.
+Effective zero-shot learning lies in generating
+embeddings that cluster same-class (in our case,
+same-speaker) instances closely while maintaining
+separation between different classes (Zhu et al.,
+2019). Traditional training approaches for ZSL
+models rely on two key components: exposure to
+a large number of diverse classes and the use of
+specialized loss functions that promote both inter-
+--- PAGE 2 ---
+class separation and intra-class compactness (Min
+et al., 2020). The underlying principle here is that
+by learning from a sufficiently large number of
+classes, and through proper encouragement embod-
+ied in the losses, the model learns not merely to
+separate the classes it has seen, but the more gen-
+eral principle that instances from a class must be
+clustered closely together while begin separated
+from those from other classes (Xian et al., 2018).
+However, when the training datasets lack the
+necessary variety of classes (speakers), this can
+severely limit the model’s ability to develop ro-
+bust and transferable representations (Xie et al.,
+2022). Indeed, it may be argued that in the high-
+dimensional space of the embeddings, anyfinite
+set of training classes is insufficient to cover the
+space adequately. This limitation leads to models
+that fail to generalize effectively to unseen cate-
+gories, resulting in suboptimal zero-shot inference
+performance (Gupta et al., 2021).
+Popular approaches to address training data
+limitations often rely on data augmentation tech-
+niques. Methods such as AutoAugment (Cubuk
+et al., 2019) and SpecAugment (Park et al., 2019)
+generate new samples by modifying existing ones
+through transformations like geometric distortions,
+time warping, and frequency masking. However,
+while these techniques increase intra-class diver-
+sity, they do not introduce new classes, limiting
+their effectiveness in zero-shot learning scenarios.
+Of most relevance to our paper are mixup -based
+data augmentation techniques, e.g.(Verma et al.,
+2019; Yun et al., 2019), that aim to enhance training
+by generating new samples through interpolation
+(Han et al., 2021) of both the features and their
+labels. Regardless of the interpolation, yet these
+methods also do not generate new classes; they
+merely improve the generalization of the model by
+mapping mixed data to mixed-class labels. Still
+other methods use generative models such as Vari-
+ational Autoencoders (V AEs), Generative Adver-
+sarial Networks (GANs), diffusion models etc.to
+generate authentically novel data to enhance the
+training (Min et al., 2019); however these too are
+generally restricted to generating novel instances
+forknown classes, limiting their effectiveness in
+zero-shot scenarios (Pourpanah et al., 2022). Thus,
+while these approaches are generally very success-
+ful in improving generalization in classification
+problems, they fail at addressing the problem ZSL
+learning faces, that of increasing the number of
+classes themselves, leading to inconsistent general-ization to unseen classes (Xie et al., 2022).
+In this paper, we introduce Class Augmen-
+tation with AdversaRial Mixup regulariAztion
+(CAARMA), a data augmentation framework to
+introduce synthetic classes (speakers) to enhance
+ZSL training for speaker verification. CAARMA
+utilizes a mixup-like strategy to generate data from
+fictitious speakers. However, unlike conventional
+mixup which mixes data in the input space, which
+would arguably be meaningless in our setting (a
+straight-forward mix of two speech recordings will
+merely result in a mixed signal, and not a new
+speaker), the mixup is performed in the embedding
+space in a manner that permits assignment of new
+class identities to the mixed-up data. Critically, we
+must now ensure that the mixed-up embeddings
+resemble those from actual speakers. We do so
+through a discriminator that is used to minimize
+categorical distinctions between synthetic and au-
+thentic data through adversarial training.
+We demonstrate CAARMA’s effectiveness
+through extensive evaluation on speaker verifica-
+tion, where it achieves substantial improvements in
+generalizing to diverse speaker distributions. Ad-
+ditional experiments on other ZSL speech tasks
+further validate our approach’s broad applicability.
+Our main contributions are as follows:
+•We introduce CAARMA, a novel class aug-
+mentation framework that addresses the fun-
+damental limitation of class diversity in zero-
+shot learning by generating synthetic classes
+termed as Sythetic Label Mixup (SL-Mixup)
+through embedding-space mixing, rather than
+conventional input-space augmentation.
+•We develop an adversarial training mechanism
+that ensures the synthetic classes generated
+through our mixing strategy maintain statis-
+tical authenticity by minimizing categorical
+distinctions between real and synthetic em-
+beddings.
+•We achieve significant performance improve-
+ments in zero-shot inference, demonstrated
+through an 8% improvement over baseline
+models in speaker verification tasks, with en-
+hanced generalization to diverse speaker dis-
+tributions and verified applicability across var-
+ious zero-shot learning tasks.
+--- PAGE 3 ---
+2 Related-Work
+Mixup. The development of mixup strategies has
+evolved substantially since Mixup’s original intro-
+duction by (Zhang et al., 2018), which generated
+virtual samples and mixed labels by linearly com-
+bining two input samples and their corresponding
+labels. This pioneering method proved particularly
+successful in enhancing data diversity and improv-
+ing generalization in visual classification tasks. Ex-
+tensions such as ManifoldMix (Verma et al., 2019)
+applied this concept to hidden layers, while Cut-
+Mix (Yun et al., 2019) introduced a patch-based
+approach by blending rectangular sections of im-
+ages, offering a novel alternative for augmenting
+training data. Subsequent mixup strategies focused
+on tailoring data mixing to specific contexts or im-
+proving the precision of mixing. Static policies
+like SmoothMix (Lee et al., 2020), GridMix (Baek
+et al., 2021), and ResizeMix (Qin et al., 2020) used
+hand-crafted cutting techniques, while dynamic
+approaches such as PuzzleMix (Kim et al., 2020)
+and AlignMix (Venkataramanan et al., 2022) in-
+corporated optimal-transport methods to determine
+mix regions with greater flexibility. For Vision
+Transformers, strategies such as TransMix (Chen
+et al., 2022) and TokenMix (Liu et al., 2022) fo-
+cused on leveraging attention mechanisms to re-
+fine mixing operations, particularly for transformer
+architectures (Dosovitskiy et al., 2021). Recent
+developments have adapted mixup techniques to
+tasks beyond classification, such as regression. C-
+Mixup, for instance, applies sample mixing based
+on label distances, using a symmetric Gaussian
+kernel to select samples that improve regression
+performance (Yao et al., 2022). Further enhancing
+robustness, RC-Mixup integrates C-Mixup with
+multi-round robust training, creating a feedback
+loop where C-Mixup helps identify cleaner data,
+and robust training improves the quality of data
+for mixing (Hwang et al., 2024). These special-
+ized approaches reveal mixup’s adaptability across
+various machine learning tasks, enhancing model
+performance and data resilience. However, it’s im-
+portant to note that none of these methods involve
+mixing in the embedding space, which could allow
+for the creation of entirely new and synthetic class
+identities,
+Synthetic speech. Recent advancements in syn-
+thetic audio generation have emphasized the cre-
+ation of diverse and high-quality datasets, crucial
+for training and evaluating audio-based AI mod-els. A notable innovation is ConversaSynth, a
+framework utilizing large language models (LLMs)
+to generate synthetic conversational audio across
+varied persona settings (Kyaw and Chan, 2024).
+This method begins with generating text-based di-
+alogues, which are then rendered into audio us-
+ing text-to-speech (TTS) systems. The synthetic
+datasets produced are noted for their realism and
+topic variety, proving beneficial for tasks such as
+audio tagging, classification, and multi-speaker
+speech recognition. These capabilities make Con-
+versaSynth a valuable tool for developing robust,
+adaptable AI models that can handle diverse audio
+data and complex conversational contexts. In the
+domain of speaker verification, SpeechMix intro-
+duces a novel method by mixing speech at the wave-
+form level, carefully adjusting ratios to preserve the
+distinct characteristics of speaker identity (Jindal
+et al., 2020). However, like many other generative
+and augmentation techniques, SpeechMix primar-
+ily focuses on manipulating known speaker voices
+rather than generating new identities, thereby limit-
+ing its utility for enhancing speaker diversity crit-
+ical for effective zero-shot learning. In the con-
+text of speaker verification, discriminative neural
+clustering (Li et al., 2021) employs clustering tech-
+niques to enhance speaker diarization by learning
+discriminative embeddings, but it does not address
+class diversity through synthetic class generation
+as CAARMA does. Synthio employs a unique
+approach by using text-to-audio (T2A) diffusion
+models to augment small-scale audio classification
+datasets (Ghosh et al., 2026). It enhances composi-
+tional diversity and maintains acoustic consistency
+by aligning T2A-generated synthetic samples with
+the original dataset using preference optimization.
+Additionally, exploring style transfer in synthetic
+audio, recent work by Ueda et al. employs a VITS-
+based voice conversion model, conditioned on the
+fundamental frequency (F0), to produce expressive
+variations from neutral speaker voices ( ?). This
+method achieves cross-speaker style transfer in a
+FastPitch-based TTS system, incorporating a style
+encoder pre-trained on timbre-perturbed data to
+prevent speaker leakage. This technique enhances
+the utility of synthetic data in applications requir-
+ing rich stylistic diversity. These developments
+underline the increasing sophistication of synthetic
+audio generation techniques, from multi-speaker
+conversations in ConversaSynth to Synthio’s op-
+timized T2A augmentation for classification, and
+cross-speaker style transfers with VITS-based mod-
+--- PAGE 4 ---
+els. They collectively demonstrate the power of
+synthetic data to enrich audio model training by
+adding diversity and realism. However, these meth-
+ods still face limitations in generating entirely new
+speaker identities, which is critical for expanding
+the range of recognizable voices in speaker verifi-
+cation systems. CAARMA addresses this gap by
+directly mixing in the embedding space, creating
+synthetic speakers that enhance zero-shot learning
+capabilities. CAARMA not only preserves speaker
+characteristics but also significantly expands the
+diversity of speaker identities, offering a superior
+solution for training more robust and adaptable
+speaker verification systems.
+3 Class Augmentation with Adversarial
+Mixup Regularization
+3.1 Overview
+As mentioned in Section 1, ZSL models learn
+their ability to compactly cluster same-class em-
+beddings while maintaining separation between
+classes primarily through exposure to a large num-
+ber of classes during training; the more classes
+they are exposed to in training, the better they
+are able to generalize to unseen classes. In the
+speaker verification setting, this translates to train-
+ing the model with recordings from a large num-
+ber of speakers; the more the number of training
+speakers the better the model generalizes. To im-
+prove this generalization CAARMA attempts to
+increase the number of speakers by creating syn-
+thetic speakers while training. Synthetic speakers
+may be created through generative methods such
+as (Cornell et al., 2024); however this approach
+does not scale. Instead, CAARMA creates them
+through a simple mixup strategy, as convex com-
+binations of real speakers, with a key distinction:
+the mixup is performed in the embedding space,
+where the classes are expected to form compact
+(and generally convex) clusters. In order to ensure
+that these synthetic speakers are indeed representa-
+tive of actual speakers, CAARMA utilizes a mixup
+discriminator , a discriminator which attempts to
+distinguish between synthetic and real speakers: if
+this discriminator is fooled, the synthetic speakers
+are statistically indistinguishable from real ones.
+When training the model, a conventional loss
+such as the Additive Margin Softmax (AM-
+Softmax) (Wang et al., 2018) is used. The synthetic
+classes, which are created dynamically during train-
+ing, are included by dynamically also expandingthe class labels in the loss. In addition, the model
+also attempts to adversarially fool the discriminator.
+Once the model is trained, the discriminator is no
+longer needed and is discarded.
+3.2 Framework
+Our framework consists of three main components:
+an encoder for embedding generation, a synthetic
+label mixup mechanism for class augmentation,
+and an adversarial training scheme with a seman-
+tic discriminator. Figure 2 illustrates the complete
+pipeline of our approach. The process begins with
+a waveform input that is transformed into a Mel-
+spectrogram. This spectrogram serves as input
+to the encoder E, which generates embeddings e
+that capture discriminative speaker characteristics.
+These embeddings undergo our SL-Mixup strategy,
+which generates synthetic embeddings esynby mix-
+ing embeddings ebased on their closest neighbor
+weights W. Each synthetic embedding receives
+a corresponding synthetic label IDsynwithin the
+mini-batch. The framework employs two primary
+loss functions: the encoder loss Lrealfor original
+embeddings and the synthetic loss Lsynfor syn-
+thetic embeddings. A Self-Supervised Learning
+(SSL) model serves as the mixup discriminator
+to distinguish between real ( R) and synthetic ( S)
+embeddings. A discriminator loss LDguides the
+discriminator to maximally distinguish between R
+andS. On the other hand, a generator loss Lgen
+guides the encoder to “fool” the discriminator, so
+that it perceives no distinction between real and
+synthetic embeddings.
+3.3 Encoder
+The encoder Etransforms Mel-spectrograms
+into discriminative embeddings ethat capture
+speaker-specific acoustic features. We employ
+an MFA-Conformer model (Zhang et al., 2022)
+as our encoder architecture, which combines
+feed-forward networks (FFNs), multihead self-
+attention (MHSA), and convolution modules. The
+model incorporates positional embeddings to han-
+dle variable-length input sequences effectively. For
+training, we utilize the AM-Softmax function as
+our encoder loss Lreal.
+Lreal=−loges·(cos(θy)−m)
+PC
+j=1es·cos(θj)
+where sis a scaling factor used to stabilize gradi-
+ents,Crepresents the number of classes, cos(θy)
+--- PAGE 5 ---
+ℋ
+Mel-Spectrum
+Mix-Up
+ℇ
+Speaker 1Speaker 2
+Mix-Up
+ℋ
+Syn. SpeakerShared
+Pretrained SSL Model
+ℒ!"#ℒ$%&'
+Real Embed.Syn. Embed.
+Real/FakeMulti-layer Features
+ℇ
+ℋ
+EncoderCls. HeadSpeaker Embed.Figure 2: Illustration of CAARMA framework. (a) The encoder ( E) extracts embeddings from Mel-spectrograms,
+which are processed by a classification head ( H) for speaker identification and through Mix-Up for synthetic
+embedding generation. (b) Both real and synthetic embeddings are fed into a pretrained SSL model that acts as a
+discriminator, distinguishing between real and synthetic samples.
+denotes the cosine similarity for the true class, and
+mis an additive margin that enhances class separa-
+tion by increasing inter-class distances.
+3.4 Synthetic Label Mixup
+Our SL-Mixup strategy generates synthetic em-
+beddings esynwithin each mini-batch by mixing
+embeddings eaccording to their closest neigh-
+bor weights W, as detailed in Algorithm 1. This
+approach ensures synthetic embeddings remain
+within the same manifold as real embeddings,
+avoiding arbitrary generation. The strategy creates
+synthetic labels IDsynand embeddings dynami-
+cally during training, enabling effective represen-
+tation learning and facilitating the potential use of
+unlabeled data. To ensure that synthetic speakers
+are minimally confusable with their component
+speakers, we only combine pairs of speakers with a
+fixed weight of 0.5. This approach maintains a bal-
+anced contribution from each component speaker,
+preventing synthetic embeddings from collapsing
+into a single identity while maintaining inter-class
+separation. The synthetic loss Lsynis computed
+using the AM-Softmax loss function applied to
+synthetic embeddings esyn. This loss is integrated
+into the main encoder loss Lreal, scaled by 1/λ,
+where λrepresents the number of speakers. ThisAlgorithm 1 SL-Mixup
+Input: Feature matrix X, Label vector Y,
+Weight matrix W
+Initialize Wsyn←0,Ysyn←0,Xsyn←0
+foryi∈Ydo
+distances ← ∥W[:, i]−W[:, j]∥2∀j∈
+label_set \ {i}
+neighbor (yi)←arg min( distances )
+end for
+fori∈Batch do
+l1←Y[i], l2←neighbor (l1)
+Wsyn[:, i]←0.5×(W[:, l1] +W[:, l2])
+Ysyn[i]←new_label (l1, l2)
+index [i]←find(Y=l2)
+Xsyn[i]←0.5×(X[i] +X[index [i],:])
+end for
+Return: Xsyn,Ysyn,Wsyn
+integration ensures proper alignment of synthetic
+embeddings within the embedding manifold.
+3.5 Adversarial Training
+Our adversarial training process alternates be-
+tween optimizing the encoder and discriminator,
+as described in Algorithm 2. This optimization
+scheme continuously refines the embedding mani-
+--- PAGE 6 ---
+Algorithm 2 Adversarial Training with Synthetic
+Embeddings
+Input: Feature extractor f(X), Model M, Dis-
+criminator D, Dataset D(waveforms Xand la-
+belsY), Adversarial weight λadv
+foreach epoch e∈[1, Nepochs ]do
+foreach batch (X, Y )∈ D do
+Extract features F=Mel(X)
+Compute embeddings e=E(F)
+Compute AM-Softmax loss Lreal
+Generate synthetic embeddings esynvia
+mixup
+Compute real predictions D(e)and fake
+predictions D(esyn)
+Compute discriminator loss:
+LD=BCE(D(e),1) + BCE(D(esyn),0)
+Update Dusing∇LD
+Compute generator loss
+LG=BCE(D(esyn),1) + BCE(D(e),0)
+Adjust λadvbased on Lreal/LG
+Compute total loss Ltotal=Lreal+λadvLG
+Update Musing∇L total
+end for
+end for
+Return: Trained MandD
+fold through the interaction between real and syn-
+thetic embeddings:
+•Discriminator Training: The discriminator
+Dlearns to differentiate between real embed-
+dings eand synthetic embeddings esynusing
+features extracted from multiple model layers.
+The discriminator loss is defined as:
+LD=BCE(D(e),1) + BCE(D(esyn),0)
+(1)
+where BCE represents binary cross-entropy
+loss.
+•Generator Loss: The encoder incorporates
+a generator loss LGthat guides embedding
+alignment with the manifold structure:
+LG=BCE(D(esyn),1) + BCE(D(e),0)
+(2)
+3.6 Mixup Discriminator
+To enhance the discriminative power of our frame-
+work, we incorporate a self-supervised model (Hu-
+BERT) (Hsu et al., 2021) as a mixup discrimina-
+tor. This discriminator leverages the pre-trainedrepresentations to provide richer gradients during
+adversarial training, improving the stability and
+quality of the learned embeddings. The seman-
+tic discriminator processes embeddings through
+an adapter module that projects them into a com-
+patible feature space. The adapter consists of a
+down-projection layer with spectral normalization,
+followed by fully connected layers with GELU
+activation (Hendrycks and Gimpel, 2016). We em-
+ploy skip connections and layer normalization to
+ensure stable training. The discriminator extracts
+features from multiple HuBERT (Hsu et al., 2021)
+layers (7, 9, 11, and 12) to capture diverse speaker
+characteristics. These features are combined using
+learnable weights and processed through a resid-
+ual classification block with spectral normalization
+and LeakyReLU activation (Xu, 2015) to determine
+whether an embedding is real or synthetic.
+4 Experiments
+4.1 Datasets
+We utilize four datasets in our proposed ap-
+proach: V oxCeleb1 (Nagrani et al., 2017), V ox-
+Celeb2 (Chung et al., 2018), and two datasets
+from the Dynamic-SUPERB (Huang et al., 2024)
+benchmark such as HowFarAreYou and DailyTalk
+datasets. The dataset statistics are summarized in
+Table 1. These datasets were employed across dif-
+ferent tasks to evaluate the adaptability and gener-
+alizability of our pipeline:
+•Speaker Identification: The primary task of
+our study involves speaker identification using
+V oxCeleb1 and V oxCeleb2. These large-scale
+datasets contain speech recordings from thou-
+sands of speakers.
+•Speaker Distance Estimation The How-
+FarAreYou dataset originates from the
+3DSpeaker dataset, designed to assess the dis-
+tance of a speaker from the recording device.
+The task involves predicting distance labels
+(e.g., 0.4m, 2.0m) based on speech recordings.
+•Emotion Recognition: We use the DailyTalk
+dataset to classify the emotional state (anger,
+disgust, fear, happiness, sadness, surprise,
+neutral) of a speaker based on speech utter-
+ances. This dataset contains speech samples
+labeled with seven distinct emotion categories.
+To maintain consistency with other datasets,
+we resample all recordings to 16 kHz before
+processing.
+--- PAGE 7 ---
+ID D ATASET CLASSES UTTERANCES
+1 V OXCELEB 1 1211 153,516
+2 V OXCELEB 2 5994 1,087135
+3 H OWFARAREYOU 3 3,000
+4 D AILY TALK 7 16,600
+Table 1: Dataset statistics used in our experiments.
+IDLsyn AT MD R ESULTS
+1 3.33
+2✓ 3.28
+3 ✓ 3.15
+4 ✓ ✓ 3.18
+5✓ ✓ 3.17
+6✓ ✓ ✓ 3.09
+Table 2: EER Results for MFA Conformer baseline,
+Adversarial Training (AT), Mixup Discriminator (MD),
+and Synthetic Loss Lsynusing V oxCeleb1 for the SV
+tasks.
+Table 1 provides an overview of the datasets used
+in our experiments, including the number of classes
+and total utterances per dataset.
+4.2 Experimental Setup
+4.2.1 Model Architecture
+We train two baseline architectures for speaker ver-
+ification:
+ECAPA-TDNN (Desplanques et al., 2020):
+Contains three SE-Res2Blocks with 1024 channels
+(20.8M parameters).
+MFA-Conformer (Zhang et al., 2022): Em-
+ploys 6 Conformer blocks with 256-dimensional
+encoders, 4 attention heads, and convolution kernel
+size of 15 (19.7M-20.5M parameters).
+Both architectures generate 192-dimensional em-
+beddings for fair comparison. For emotion and dis-
+tance tasks, we utilize HuBERT-Large (pretrained
+on LibriSpeech) with 1024-dimensional embed-
+dings and 768 hidden units.
+4.2.2 Adversarial Training
+We incorporate adversarial training into our base-
+line experiments. In this approach, each model is
+retrained from scratch within our adversarial frame-
+work. The discriminator is trained concurrently
+with the encoder. The discriminator’s role is to
+effectively distinguish between real and synthetic
+embeddings, enforcing a well-structured represen-
+tation.
+Mixup discriminator To determine the most in-
+formative HuBERT hidden layers for speaker rep-
+resentation, we conduct an ablation study. We
+experiment with different layer configurations,ENCODER BASELINE AT AT+ Lsyn
+ECAPA TDNN 4.22 3.96 3.87
+MFA C ONFORMER 3.33 3.18 3.09
+Table 3: EER Results for two different encoders
+ECAPA-TDNN and MFA Conformer showing perfor-
+mance in baseline, Adeversarial Training (AT), and Syn-
+thetic Loss ( Lsyn) on V oxCeleb1-O.
+ID H IDDEN LAYERS EER (%) MINDCF
+1 h3, h6, h9, h12 3.22 0.31
+2 h6, h7, h8, h9 3.12 0.30
+3 h7, h9, h11, h12 3.09 0.28
+Table 4: Ablation study of different hidden layers for
+Mixup Discriminator (MD) reporting EER (%) and
+minDCF.
+including {h3, h6, h9, h12},{h7, h9, h11, h12},
+{h6, h7, h8, h9}and evaluate their impact on
+model performance.
+4.2.3 Implementation Details
+We implement all baseline systems and discrimi-
+nators using the PyTorch framework (Yun et al.,
+2019). Each utterance is randomly segmented
+into fixed 3-second chunks, with 80-dimensional
+Fbanks as input features, computed using a 25
+ms window length and a 10 ms frame shift, with-
+out applying voice activity detection. All models
+are trained using AM-Softmax loss with a mar-
+gin of 0.2 and a scaling factor of 30. We use the
+AdamW optimizer with an initial learning rate of
+0.001 for model training, while the discriminator
+is optimized separately with AdamW at an ini-
+tial learning rate of 2e-4. To prevent overfitting,
+we apply a weight decay of 1e-7 and use a linear
+warmup for the first 2k steps, though no warmup is
+applied to the discriminator. Training is conducted
+on NVIDIA V100 GPUs with a batch size of 50,
+and all models are trained for 30 epochs.
+Computational Complexity: CAARMA intro-
+duces no additional computational cost during in-
+ference, as the discriminator is not used, and infer-
+ence remains identical to the baseline model. Dur-
+ing training, the primary computational overhead
+arises from two components: (1) the forward and
+backward passes through the discriminator, and (2)
+the computation of the AM-Softmax loss for both
+real and synthetic (mixup) data. Since synthetic em-
+beddings are dynamically generated from real-data
+embeddings, no additional embedding computa-
+tions are required. In our experiments, synthetic
+data is generated in a 1:1 ratio with real data, ef-
+--- PAGE 8 ---
+ID Model # Parameters EER(%) minDCF Utterances # Speakers
+1 MFA-Conformer 19.8M 12.82 0.770 12,335 100
+2 MFA-Adversarial 19.8M 11.83 0.790 12,335 100
+3 MFA-Conformer 19.8M 0.86 0.066 1,240,651 7,205
+4 MFA-Adversarial 19.8M 0.81 0.036 1,240,651 7,205
+Table 5: Performance overview of all systems on VoxCeleb1-O
+DATA SET BASELINE AT
+EMOTION CLASSIFICATION 83% 85.50%
+HOWFARSPK 77.91% 79.97%
+Table 6: Classification accuracies for Hubert Encoder
+baseline and with Adversarial Training on two different
+tasks.
+fectively quadrupling the compute time for the loss
+calculations (doubling for AM-Softmax on real and
+synthetic data, and doubling for the discriminator).
+However, as the loss computation constitutes a mi-
+nor fraction of the overall training cost, the total
+increase in training time remains modest. Addition-
+ally, since mixup data is computed dynamically,
+the memory overhead is negligible.
+5 Results & Analysis
+To validate the effectiveness of our approach, we
+conduct comprehensive experiments across speaker
+verification, emotion classification, and speaker dis-
+tance estimation tasks. Our analysis demonstrates
+significant improvements through adversarial re-
+finement on model generalization.
+5.1 Speaker Verification Task
+We evaluate our models on V oxCeleb1-O, the of-
+ficial test set of V oxCeleb1. For evaluating the
+performance, we use the Equal Error Rate (EER)
+and minimum Detection Cost Function (minDCF).
+EER represents the point where the false accep-
+tance rate equals the false rejection rate, providing
+a single measure of verification accuracy (lower
+is better). The minDCF quantifies the cost of de-
+tection errors, balancing false positives and false
+negatives, with lower values indicating better per-
+formance. These metrics assess the model’s ability
+to distinguish between same-speaker and different-
+speaker pairs effectively.
+5.1.1 Small Scale
+Our initial evaluations focused on models trained
+on V oxCeleb1 to facilitate thorough experimenta-tion with different model configurations.
+Using the MFA Conformer as the Encoder, we
+conduct several experiments (Table 2) reporting the
+EER. The addition of synthetic loss alone (Model
+ID2) yield slight improvements over the base-
+line (Model ID1). More substantial gains were
+achieved through adversarial training (Model ID3),
+with further improvements observed when incorpo-
+rating the mixup discriminator (Model ID4). The
+best performance was achieved by Model ID6,
+which combined all three components: synthetic
+loss, mixup discriminator, and adversarial training.
+To further validate the generalizability of our ap-
+proach, we implement it with an alternative speaker
+encoder. As shown in Table 3, the combination of
+adversarial training and mixup discriminator im-
+proved performance by 6.56% compared to the
+baseline. Adding synthetic loss further enhanced
+the improvement to 8.29%.
+We conduct an ablation study to identify the
+most informative hidden layers for speaker repre-
+sentation. Table 4 presents the EER and minDCF
+across various layer configurations. Our analysis
+revealed that layers 7, 9, 11, and 12 provide the
+most effective speaker characteristics representa-
+tion, suggesting that later layers capture more valu-
+able speaker-specific information.
+5.1.2 Large Scale
+To demonstrate scalability, we train on the com-
+bined V oxCeleb1 and V oxCeleb2 datasets, creat-
+ing a substantially larger training corpus. As sum-
+marized in Table 5, the MFA-Conformer encoder
+(Model ID3) achieves strong baseline performance,
+which is further enhanced through adversarial re-
+finement (Model ID4).
+Specifically, adversarial training reduces the
+EER from 0.86% to 0.81% and nearly halves the
+minDCF from 0.066 to 0.036. These improvements
+are consistent with the small-scale trends, confirm-
+ing that our framework scales robustly to larger and
+more diverse speaker populations.
+Importantly, we note that even in the limited-
+--- PAGE 9 ---
+diversity setting of V oxCeleb1—where only 100
+speakers are present—our approach still yields con-
+sistent gains (Model IDs 1–2). This suggests that
+the framework is not merely leveraging broader
+class coverage in large-scale datasets, but is also
+effective in scenarios with constrained speaker di-
+versity. In practice, this means that our method im-
+proves speaker verification robustness both under
+resource-rich conditions and under more restrictive
+data availability.
+Overall, these results highlight that adversarial
+training is beneficial across training regimes: it gen-
+eralizes well to large-scale, diverse datasets while
+still offering tangible improvements when diversity
+is limited.
+5.2 Emotion and Speaker Distance Tasks
+To demonstrate the generalizability of our approach
+across different speech processing domains, we
+evaluate its effectiveness on emotion classifica-
+tion and speaker distance estimation using the Dai-
+lyTalk and HowFarAreYou test sets, respectively.
+As shown in Table 6, our method improved classi-
+fication accuracy across both tasks: emotion classi-
+fication accuracy increased from 83% to 85.50%,
+while speaker distance estimation improved from
+77.91% to 79.97%. These results demonstrate that
+our approach can be effectively integrated with var-
+ious models across various domains.
+6 Conclusion
+In this work, we introduce CAARMA, a novel
+class augmentation framework designed to tackle
+the challenge of limited class diversity in zero-
+shot inference tasks. Our approach synthesizes
+strategic data mixing with an adversarial refine-
+ment mechanism to align real and synthetic classes
+effectively within the embedding space. We vali-
+date CAARMA’s effectiveness in speaker verifica-
+tion, achieving an 8% improvement over baseline
+models, and extend its application to emotion clas-
+sification and speaker distance estimation, where
+it also shows significant gains. These results un-
+derscore CAARMA’s capability to enhance em-
+bedding structures in various zero-shot inference
+scenarios. Our framework offers a scalable solu-
+tion to the class diversity problem, facilitating inte-
+gration into existing systems without the need for
+new real-world data collection. With our code re-
+leased publicly, we anticipate that CAARMA will
+aid both research and practical applications in zero-shot learning. Future work will focus on expanding
+CAARMA’s utility to larger datasets and other do-
+mains, such as computer vision.
+Limitations
+The CAARMA framework, while showcasing no-
+table enhancements in speaker verification and
+zero-shot learning tasks, is subject to several lim-
+itations that merit further exploration. Although
+it performs well in controlled settings, its scala-
+bility to extremely large or diverse datasets, as
+well as its applicability to real-world scenarios with
+high speaker variability, has yet to be fully estab-
+lished. This also adds complexity to the implemen-
+tation and increases computational demands, which
+may restrict accessibility for those with limited re-
+sources.
+Ethics Statement
+The CAARMA framework is developed with a
+commitment to ethical considerations, especially
+concerning privacy and the potential for surveil-
+lance misuse. It is crucial to ensure that this tech-
+nology, while advancing the capabilities of speaker
+verification systems, is employed within the con-
+fines of strict ethical guidelines and privacy regula-
+tions to prevent any invasion of individual privacy.
+As this framework facilitates the generation of syn-
+thetic data, we also focus on preventing biases that
+could arise in synthetic datasets, ensuring fair rep-
+resentation across different groups. In adherence to
+the ACL Ethics Policy, we emphasize transparency
+in the deployment of CAARMA and advocate for
+its use in ethically justifiable manners that respect
+individual rights and data integrity.
+--- PAGE 10 ---
+References
+Jinwoo Baek, Hwanjun Kim, Seunghyeon Jeong, Won-
+jun Choi, and Chulhee Kim. 2021. Gridmix: A sim-
+ple grid-based data augmentation method for object
+detection. In Proceedings of the IEEE/CVF Confer-
+ence on Computer Vision and Pattern Recognition ,
+pages 3255–3264.
+Ting Chen, Xiaowei Wang, Yunzhi Shen, Weihao Nie,
+Han Zhang, Binglie Li, and Yu Zhang. 2022. Trans-
+mix: Attending to mix for vision transformers. In
+Proceedings of the IEEE/CVF Conference on Com-
+puter Vision and Pattern Recognition , pages 7367–
+7377.
+J Chung, A Nagrani, and A Zisserman. 2018. V ox-
+celeb2: Deep speaker recognition. Interspeech 2018 .
+Samuele Cornell, Jordan Darefsky, Zhiyao Duan, and
+Shinji Watanabe. 2024. Generating data with text-to-
+speech and large-language models for conversational
+speech recognition. In Proc. SynData4GenAI 2024 ,
+pages 6–10.
+Ekin D Cubuk, Barret Zoph, Dandelion Mane, Vijay
+Vasudevan, and Quoc V Le. 2019. Autoaugment:
+Learning augmentation strategies from data. In Pro-
+ceedings of the IEEE/CVF conference on computer
+vision and pattern recognition , pages 113–123.
+Brecht Desplanques, Jenthe Thienpondt, and Kris De-
+muynck. 2020. Ecapa-tdnn: Emphasized channel
+attention, propagation and aggregation in tdnn based
+speaker verification. Interspeech .
+Alexey Dosovitskiy, Lucas Beyer, Alexander
+Kolesnikov, Dirk Weissenborn, Xiaohua Zhai,
+Thomas Unterthiner, Mostafa Dehghani, Matthias
+Minderer, Georg Heigold, Sylvain Gelly, et al. 2021.
+An image is worth 16x16 words: Transformers
+for image recognition at scale. In International
+Conference on Learning Representations .
+Sreyan Ghosh, Sonal Kumar, Zhifeng Kong, Rafael
+Valle, Bryan Catanzaro, and Dinesh Manocha. 2026.
+Synthio: Augmenting small-scale audio classifica-
+tion datasets with synthetic data. In The Thirteenth
+International Conference on Learning Representa-
+tions .
+Nilesh Gupta, Sakina Bohra, Yashoteja Prabhu, Saurabh
+Purohit, and Manik Varma. 2021. Generalized zero-
+shot extreme multi-label learning. In Proceedings of
+the 27th ACM SIGKDD Conference on Knowledge
+Discovery & Data Mining , pages 527–535.
+Zongyan Han, Zhenyong Fu, Shuo Chen, and Jian Yang.
+2021. Contrastive embedding for generalized zero-
+shot learning. In Proceedings of the IEEE/CVF con-
+ference on computer vision and pattern recognition ,
+pages 2371–2381.
+Dan Hendrycks and Kevin Gimpel. 2016. Gaus-
+sian error linear units (gelus). arXiv preprint
+arXiv:1606.08415 .Wei-Ning Hsu, Benjamin Bolte, Yao-Hung Hubert Tsai,
+Kushal Lakhotia, Ruslan Salakhutdinov, and Abdel-
+rahman Mohamed. 2021. Hubert: Self-supervised
+speech representation learning by masked prediction
+of hidden units. IEEE/ACM transactions on audio,
+speech, and language processing , 29:3451–3460.
+Chien-yu Huang, Ke-Han Lu, Shih-Heng Wang, Chi-
+Yuan Hsiao, Chun-Yi Kuan, Haibin Wu, Siddhant
+Arora, Kai-Wei Chang, Jiatong Shi, Yifan Peng, et al.
+2024. Dynamic-superb: Towards a dynamic, collabo-
+rative, and comprehensive instruction-tuning bench-
+mark for speech. In ICASSP , pages 12136–12140.
+IEEE.
+Seong-Hyeon Hwang, Minsu Kim, and Steven Euijong
+Whang. 2024. Rc-mixup: A data augmentation strat-
+egy against noisy data for regression tasks. In Pro-
+ceedings of the 30th ACM SIGKDD Conference on
+Knowledge Discovery and Data Mining , pages 1155–
+1165.
+Amit Jindal, Narayanan Elavathur Ranganatha, Aniket
+Didolkar, Arijit Ghosh Chowdhury, Di Jin, Ramit
+Sawhney, and Rajiv Ratn Shah. 2020. Speechmix-
+augmenting deep sound recognition using hidden
+space interpolations. In INTERSPEECH , pages 861–
+865.
+Jang-Hyun Kim, Wonho Choo, and Hyun Oh Song.
+2020. Puzzle mix: Exploiting saliency and local
+statistics for optimal mixup. In International Confer-
+ence on Machine Learning (ICML) .
+Kaung Myat Kyaw and Jonathan Hoyin Chan. 2024. A
+framework for synthetic audio conversations genera-
+tion using large language models. In 2024 IEEE/WIC
+International Conference on Web Intelligence and In-
+telligent Agent Technology (WI-IAT) , pages 355–359.
+IEEE.
+Jin-Ha Lee, Muhammad Zaigham Zaheer, Marcella
+Astrid, and Seung-Ik Lee. 2020. Smoothmix: a
+simple yet effective data augmentation to train ro-
+bust classifiers. In 2020 IEEE/CVF Conference on
+Computer Vision and Pattern Recognition Workshops
+(CVPRW) , pages 3264–3274. IEEE Computer Soci-
+ety.
+Qiujia Li, Florian L Kreyssig, Chao Zhang, and Philip C
+Woodland. 2021. Discriminative neural clustering for
+speaker diarisation. In 2021 IEEE spoken language
+technology workshop (SLT) , pages 574–581. IEEE.
+Jihao Liu, Boxiao Liu, Hang Zhou, Hongsheng Li, and
+Yu Liu. 2022. Tokenmix: Rethinking image mixing
+for data augmentation in vision transformers. In
+European conference on computer vision , pages 455–
+471. Springer.
+Shaobo Min, Hantao Yao, Hongtao Xie, Zheng-Jun Zha,
+and Yongdong Zhang. 2019. Domain-specific em-
+bedding network for zero-shot recognition. In Pro-
+ceedings of the 27th ACM International Conference
+on Multimedia , pages 2070–2078.
+--- PAGE 11 ---
+Shaobo Min, Hantao Yao, Hongtao Xie, Zheng-Jun
+Zha, and Yongdong Zhang. 2020. Domain-oriented
+semantic embedding for zero-shot learning. IEEE
+Transactions on Multimedia , 23:3919–3930.
+Arsha Nagrani, Joon Son Chung, and Andrew Zisser-
+man. 2017. V oxceleb: A large-scale speaker identifi-
+cation dataset. Interspeech 2017 .
+Daniel S Park, William Chan, Yu Zhang, Chung-Cheng
+Chiu, Barret Zoph, Ekin D Cubuk, and Quoc V Le.
+2019. Specaugment: A simple data augmentation
+method for automatic speech recognition. In Inter-
+speech , pages 2613–2617.
+Farhad Pourpanah, Moloud Abdar, Yuxuan Luo, Xinlei
+Zhou, Ran Wang, Chee Peng Lim, Xi-Zhao Wang,
+and QM Jonathan Wu. 2022. A review of gener-
+alized zero-shot learning methods. IEEE transac-
+tions on pattern analysis and machine intelligence ,
+45(4):4051–4070.
+Jie Qin, Jiemin Fang, Qian Zhang, Wenyu Liu, Xingang
+Wang, and Xinggang Wang. 2020. Resizemix: Mix-
+ing data with preserved object information and true
+labels. arXiv e-prints , pages arXiv–2012.
+Lakshmi Venkataramanan, Aditi Raghunathan, Ananya
+Kapoor, and Gunjan Joshi. 2022. Alignmix: Improv-
+ing consistency and robustness in vision transformers
+via aligned mixup regularization. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition , pages 10338–10347.
+Vikas Verma, Alex Lamb, Christopher Beckham, Amir
+Najafi, Ioannis Mitliagkas, David Lopez-Paz, and
+Yoshua Bengio. 2019. Manifold mixup: Better rep-
+resentations by interpolating hidden states. In In-
+ternational conference on machine learning , pages
+6438–6447. PMLR.
+Li Wan, Quan Wang, Alan Papir, and Ignacio Lopez
+Moreno. 2018. Generalized end-to-end loss for
+speaker verification. In 2018 IEEE International
+Conference on Acoustics, Speech and Signal Process-
+ing (ICASSP) , pages 4879–4883. IEEE.
+Feng Wang, Jian Cheng, Weiyang Liu, and Haijun Liu.
+2018. Additive margin softmax for face verification.
+IEEE Signal Processing Letters , 25(7):926–930.
+Y Xian, CH Lampert, B Schiele, and Z Akata. 2018.
+Zero-shot learning—a comprehensive evaluation of
+the good, the bad and the ugly. arXiv preprint
+arXiv:1707.00600 .
+Guo-Sen Xie, Zheng Zhang, Huan Xiong, Ling Shao,
+and Xuelong Li. 2022. Towards zero-shot learning:
+A brief review and an attention-based embedding
+network. IEEE Transactions on Circuits and Systems
+for Video Technology , 33(3):1181–1197.
+Bing Xu. 2015. Empirical evaluation of rectified ac-
+tivations in convolutional network. arXiv preprint
+arXiv:1505.00853 .Huaxiu Yao, Yiping Wang, Linjun Zhang, James Y Zou,
+and Chelsea Finn. 2022. C-mixup: Improving gener-
+alization in regression. Advances in neural informa-
+tion processing systems , 35:3361–3376.
+Sangdoo Yun, Dongyoon Han, Seong Joon Oh,
+Sanghyuk Chun, Junsuk Choe, and Youngjoon Yoo.
+2019. Cutmix: Regularization strategy to train strong
+classifiers with localizable features. In Proceedings
+of the IEEE/CVF international conference on com-
+puter vision , pages 6023–6032.
+Hongyi Zhang, Moustapha Cisse, Yann N Dauphin, and
+David Lopez-Paz. 2018. Mixup: Beyond empirical
+risk minimization. arXiv preprint arXiv:1710.09412 .
+Yang Zhang, Zhiqiang Lv, Haibin Wu, Shanshan Zhang,
+Pengfei Hu, Zhiyong Wu, Hung-yi Lee, and Helen
+Meng. 2022. Mfa-conformer: Multi-scale feature
+aggregation conformer for automatic speaker verifi-
+cation. Interspeech .
+Pengkai Zhu, Hanxiao Wang, and Venkatesh Saligrama.
+2019. Generalized zero-shot recognition based on
+visually semantic embedding. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pat-
+tern Recognition (CVPR) .
