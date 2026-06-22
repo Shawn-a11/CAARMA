@@ -1,0 +1,88 @@
+================================================================================================================================================================
+Layer (type:depth-idx)                                       Input Shape               Output Shape              Param #                   Trainable
+================================================================================================================================================================
+MixupDiscriminator                                           [4, 192]                  [4, 1]                    4                         Partial
+├─EnhancedAdapter: 1-1                                       [4, 192]                  [4, 1024]                 --                        True
+│    └─Linear: 2-1                                           [4, 192]                  [4, 1024]                 197,632                   True
+│    └─Linear: 2-2                                           [4, 192]                  [4, 1024]                 197,632                   True
+│    └─LayerNorm: 2-3                                        [4, 1024]                 [4, 1024]                 2,048                     True
+│    └─Sequential: 2-4                                       [4, 1024]                 [4, 1024]                 --                        True
+│    │    └─Linear: 3-1                                      [4, 1024]                 [4, 2048]                 2,099,200                 True
+│    │    └─GELU: 3-2                                        [4, 2048]                 [4, 2048]                 --                        --
+│    │    └─Dropout: 3-3                                     [4, 2048]                 [4, 2048]                 --                        --
+│    │    └─Linear: 3-4                                      [4, 2048]                 [4, 1024]                 2,098,176                 True
+│    └─LayerNorm: 2-5                                        [4, 1024]                 [4, 1024]                 2,048                     True
+├─HubertModel: 1-2                                           --                        --                        4,737,536                 False
+│    └─HubertEncoderStableLayerNorm: 2-6                     --                        [4, 1, 1024]              --                        False
+│    │    └─HubertPositionalConvEmbedding: 3-5               [4, 1, 1024]              [4, 1, 1024]              --                        False
+│    │    │    └─ParametrizedConv1d: 4-1                     [4, 1024, 1]              [4, 1024, 2]              (8,389,760)               False
+│    │    │    └─HubertSamePadLayer: 4-2                     [4, 1024, 2]              [4, 1024, 1]              --                        --
+│    │    │    └─GELUActivation: 4-3                         [4, 1024, 1]              [4, 1024, 1]              --                        --
+│    │    └─Dropout: 3-6                                     [4, 1, 1024]              [4, 1, 1024]              --                        --
+│    │    └─ModuleList: 3-7                                  --                        --                        --                        False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-4      [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-5      [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-6      [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-7      [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-8      [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-9      [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-10     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-11     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-12     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-13     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-14     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-15     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-16     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-17     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-18     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-19     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-20     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-21     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-22     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-23     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-24     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-25     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-26     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    │    └─HubertEncoderLayerStableLayerNorm: 4-27     [4, 1, 1024]              [4, 1, 1024]              (12,596,224)              False
+│    │    └─LayerNorm: 3-8                                   [4, 1, 1024]              [4, 1, 1024]              (2,048)                   False
+├─LayerNorm: 1-3                                             [4, 1, 1024]              [4, 1, 1024]              2,048                     True
+├─MultiHeadAttentivePooling: 1-4                             [4, 1, 1024]              [4, 1024]                 1,024                     True
+│    └─MultiheadAttention: 2-7                               [4, 1, 1024]              [4, 1, 1024]              4,198,400                 True
+├─Linear: 1-5                                                [4, 1024]                 [4, 256]                  262,400                   True
+├─LayerNorm: 1-6                                             [4, 1, 1024]              [4, 1, 1024]              (recursive)               True
+├─MultiHeadAttentivePooling: 1-7                             [4, 1, 1024]              [4, 1024]                 (recursive)               True
+│    └─MultiheadAttention: 2-8                               [4, 1, 1024]              [4, 1, 1024]              (recursive)               True
+├─Linear: 1-8                                                [4, 1024]                 [4, 256]                  262,400                   True
+├─LayerNorm: 1-9                                             [4, 1, 1024]              [4, 1, 1024]              (recursive)               True
+├─MultiHeadAttentivePooling: 1-10                            [4, 1, 1024]              [4, 1024]                 (recursive)               True
+│    └─MultiheadAttention: 2-9                               [4, 1, 1024]              [4, 1, 1024]              (recursive)               True
+├─Linear: 1-11                                               [4, 1024]                 [4, 256]                  262,400                   True
+├─LayerNorm: 1-12                                            [4, 1, 1024]              [4, 1, 1024]              (recursive)               True
+├─MultiHeadAttentivePooling: 1-13                            [4, 1, 1024]              [4, 1024]                 (recursive)               True
+│    └─MultiheadAttention: 2-10                              [4, 1, 1024]              [4, 1, 1024]              (recursive)               True
+├─Linear: 1-14                                               [4, 1024]                 [4, 256]                  262,400                   True
+├─Sequential: 1-15                                           [4, 1024]                 [4, 1]                    --                        True
+│    └─ResidualBlock: 2-11                                   [4, 1024]                 [4, 512]                  --                        True
+│    │    └─Linear: 3-9                                      [4, 1024]                 [4, 512]                  524,800                   True
+│    │    └─Linear: 3-10                                     [4, 1024]                 [4, 512]                  524,800                   True
+│    │    └─Linear: 3-11                                     [4, 512]                  [4, 512]                  262,656                   True
+│    └─LeakyReLU: 2-12                                       [4, 512]                  [4, 512]                  --                        --
+│    └─Dropout: 2-13                                         [4, 512]                  [4, 512]                  --                        --
+│    └─ResidualBlock: 2-14                                   [4, 512]                  [4, 256]                  --                        True
+│    │    └─Linear: 3-12                                     [4, 512]                  [4, 256]                  131,328                   True
+│    │    └─Linear: 3-13                                     [4, 512]                  [4, 256]                  131,328                   True
+│    │    └─Linear: 3-14                                     [4, 256]                  [4, 256]                  65,792                    True
+│    └─LeakyReLU: 2-15                                       [4, 256]                  [4, 256]                  --                        --
+│    └─Dropout: 2-16                                         [4, 256]                  [4, 256]                  --                        --
+│    └─Linear: 2-17                                          [4, 256]                  [4, 1]                    257                       True
+================================================================================================================================================================
+Total params: 326,927,493
+Trainable params: 11,488,773
+Non-trainable params: 315,438,720
+Total mult-adds (Units.GIGABYTES): 32.68
+================================================================================================================================================================
+Input size (MB): 0.00
+Forward/backward pass size (MB): 9.15
+Params size (MB): 1238.40
+Estimated Total Size (MB): 1247.56
+================================================================================================================================================================

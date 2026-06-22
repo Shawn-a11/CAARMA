@@ -44,9 +44,12 @@ class amsoftmax_gan(nn.Module):
             )
         if flagSyn:
             
-            x_combined_0 = synthetic_embeddings.to(x.device) #torch.cat((x, synthetic_embeddings), dim=0)
-            w_combined_0 = w_combined.to(x.device) #torch.cat((self.W.to(x.device), w_combined.to(x.device)), dim=1)
-            y_combined_0 = y_combined.to(x.device) #torch.cat((label.to(x.device), y_combined.to(x.device)), dim=0)
+            # joint-L_syn: real prototypes W as negatives in the synthetic softmax
+            # (synthetic labels offset by num_real). Same fix as the faithful base.
+            num_real = self.W.shape[1]
+            x_combined_0 = synthetic_embeddings.to(x.device)
+            w_combined_0 = torch.cat((self.W.to(x.device), w_combined.to(x.device)), dim=1)
+            y_combined_0 = (y_combined + num_real).to(x.device)
 
             x_norm = torch.norm(x_combined_0, p=2, dim=1, keepdim=True).clamp(min=1e-12)
             x_norm = torch.div(x_combined_0, x_norm)
