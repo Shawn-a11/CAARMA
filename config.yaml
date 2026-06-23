@@ -56,5 +56,6 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_joint_lsyn_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_subcenter_ddp"
 title: "caarma_mfa"
+num_subcenters: 3
