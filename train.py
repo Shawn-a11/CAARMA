@@ -126,6 +126,8 @@ class Task(LightningModule):
             [self.normalize(embedding_d), self.normalize(synth_for_d)], dim=0
         )
         preds_d_all = self.discriminator(combined_d)
+        # real (B rows) is FIRST here, so the [:B] / [B:] split is correct even
+        # when synth_for_d has Ns != B rows (persistent mode skips some samples).
         real_preds, fake_preds_d = preds_d_all[:B], preds_d_all[B:]
         # Paper Eq.(1): L_D = BCE(D(e),1) + BCE(D(e_syn),0)
         d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
@@ -155,11 +157,16 @@ class Task(LightningModule):
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
 
         # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
+        # synthetic (fake) is FIRST here and in persistent mode may have Ns <= B
+        # rows (samples whose partner had no batch/bank embedding are skipped).
+        # Split on the actual synthetic count Ns, NOT B, otherwise (B-Ns) real
+        # embeddings leak into the fake half and corrupt L_G.
+        Ns = synthetic_embeddings.size(0)
         combined_g = torch.cat(
             [self.normalize(synthetic_embeddings), self.normalize(embedding)], dim=0
         )
         preds_g_all = self.discriminator(combined_g)
-        fake_preds_g, real_preds_g = preds_g_all[:B], preds_g_all[B:]
+        fake_preds_g, real_preds_g = preds_g_all[:Ns], preds_g_all[Ns:]
         g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
                   self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
 
