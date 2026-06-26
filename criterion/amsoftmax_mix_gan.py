@@ -5,83 +5,177 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from .utils import accuracy
-from helper.mixup_avg import mixup_data_euc_avg
+from helper.synth_table import slerp, PersistentSynthState
+
 
 class amsoftmax_gan(nn.Module):
-    def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30, **kwargs):
-        super(amsoftmax_gan, self).__init__()
+    """AM-Softmax + CAARMA joint-L_syn, with optional PERSISTENT synthetic classes.
 
+    persistence=False  -> SLERP one-shot mixup (the matched ablation control):
+        batch-local NN pairing, fresh per-batch synthetic classes whose prototype
+        is the SLERP midpoint of the two real prototypes (recomputed, discarded).
+
+    persistence=True   -> persistent synthetic classes (professor's direction):
+        a stable global-NN pair->column map (helper.synth_table) gives every
+        synthetic identity a LEARNABLE persistent prototype W_syn[:, col] that
+        accumulates across batches; each visit SLERP-interpolates DIFFERENT real
+        utterance embeddings (anchor from the batch, partner from a memory bank),
+        so the model learns the synthetic speaker's DISTRIBUTION instead of a
+        single one-shot point. joint-L_syn classifies synthetic samples against
+        [ real prototypes ; activated persistent synthetic prototypes ].
+    """
+
+    def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30,
+                 persistence=False, slerp_t=0.5, synth_bank_size=10,
+                 synth_max_factor=4, **kwargs):
+        super(amsoftmax_gan, self).__init__()
         self.m = margin
         self.s = scale
         self.in_feats = embedding_dim
-        self.W = torch.nn.Parameter(torch.randn(embedding_dim, num_classes), requires_grad=True)
+        self.num_real = int(num_classes)
         self.ce = nn.CrossEntropyLoss()
-        nn.init.xavier_normal_(self.W, gain=1)
-        size = self.W.shape[1]  # The size of the diagonal matrix
-        self.I = torch.diag(torch.ones(size))
-        if torch.cuda.is_available():
-            self.I = self.I.to('cuda:0')
 
-        print('Initialised AM-Softmax m=%.3f s=%.3f'%(self.m, self.s))
+        self.W = torch.nn.Parameter(torch.randn(embedding_dim, num_classes), requires_grad=True)
+        nn.init.xavier_normal_(self.W, gain=1)
+
+        self.persistence = bool(persistence)
+        self.slerp_t = float(slerp_t)
+        if self.persistence:
+            self.max_cols = int(synth_max_factor) * self.num_real
+            # persistent learnable synthetic-class prototypes (DDP-synced).
+            self.W_syn = torch.nn.Parameter(torch.randn(embedding_dim, self.max_cols),
+                                            requires_grad=True)
+            nn.init.xavier_normal_(self.W_syn, gain=1)
+            # cross-batch state (pairing + per-speaker memory bank); plain python.
+            self.synth = PersistentSynthState(self.num_real, self.max_cols,
+                                              bank_size=synth_bank_size)
+            print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f slerp_t=%.2f '
+                  'max_cols=%d bank=%d' % (self.m, self.s, self.slerp_t,
+                                           self.max_cols, synth_bank_size))
+        else:
+            print('Initialised AM-Softmax (one-shot SLERP) m=%.3f s=%.3f slerp_t=%.2f'
+                  % (self.m, self.s, self.slerp_t))
         print('Embedding dim is {}, number of speakers is {}'.format(embedding_dim, num_classes))
 
-    def forward(self, x, label=None, flagSyn=False):
+    # ------------------------------------------------------------------ utils
+    def _am_loss(self, x_emb, W_cols, target):
+        """AM-Softmax CE + top-1 acc. x_emb:(N,D) W_cols:(D,K) target:(N,) into K."""
+        x_norm = F.normalize(x_emb, dim=1)
+        w_norm = F.normalize(W_cols, dim=0)
+        costh = torch.mm(x_norm, w_norm)                      # (N, K)
+        delt = torch.zeros_like(costh).scatter_(1, target.view(-1, 1), self.m)
+        costh_m_s = self.s * (costh - delt)
+        loss = self.ce(costh_m_s, target)
+        acc = accuracy(costh_m_s.detach(), target.detach(), topk=(1,))[0]
+        return loss, acc
+
+    # -------------------------------------------------------- one-shot (OFF)
+    def _gen_oneshot_slerp(self, x, label):
+        """Batch-local NN pairing, fresh per-batch synthetic classes, SLERP."""
+        device = x.device
+        labels = [int(l) for l in label.tolist()]
+        set_label = list(set(labels))
+        idx_of = {}
+        for bi, l in enumerate(labels):
+            idx_of.setdefault(l, []).append(bi)
+
+        dic_spk = {}
+        for s in set_label:
+            cand = [k for k in set_label if k != s]
+            if not cand:
+                dic_spk[s] = s
+                continue
+            d = torch.stack([torch.dist(self.W[:, s], self.W[:, k]) for k in cand])
+            dic_spk[s] = cand[int(torch.argmin(d))]
+
+        B = x.size(0)
+        w_mix = torch.zeros(self.W.size(0), B, device=device)
+        y_mix = torch.zeros(B, dtype=torch.int64, device=device)
+        samples, newlabel, labelid = [], {}, 0
+        for bi in range(B):
+            l1, l2 = labels[bi], dic_spk[labels[bi]]
+            key = (min(l1, l2), max(l1, l2))
+            proto = slerp(self.W[:, l1], self.W[:, l2], self.slerp_t)
+            if key not in newlabel:
+                newlabel[key] = labelid
+                w_mix[:, labelid] = proto
+                labelid += 1
+            else:
+                w_mix[:, newlabel[key]] = proto
+            y_mix[bi] = newlabel[key]
+            samples.append(slerp(x[bi], x[idx_of[l2][0]], self.slerp_t))
+        synthetic = torch.stack(samples, 0)
+        return synthetic, y_mix, w_mix[:, :labelid]
+
+    # -------------------------------------------------------- persistent (ON)
+    def _gen_persistent(self, x, label, update_state):
+        """SLERP of anchor (batch) and partner (batch or memory bank) per the
+        stable global-NN pairing. Returns (synthetic (Ns,D), cols [list], None)
+        or a 1-sample fallback so the discriminator/L_syn always have input."""
+        state = self.synth
+        labels = [int(l) for l in label.tolist()]
+        idx_in_batch = {}
+        for bi, l in enumerate(labels):
+            idx_in_batch.setdefault(l, []).append(bi)
+
+        samples, cols = [], []
+        for bi, s in enumerate(labels):
+            col, j = state.col_of(s)
+            if col is None:
+                continue
+            e_j = state.partner_embedding(j, idx_in_batch, x)
+            if e_j is None:
+                continue
+            samples.append(slerp(x[bi], e_j, self.slerp_t))
+            cols.append(int(col))
+
+        if len(samples) == 0:                       # degenerate-batch guard
+            B = x.size(0)
+            partner = x[1] if B > 1 else x[0]
+            col0, _ = state.col_of(labels[0])
+            samples.append(slerp(x[0], partner, self.slerp_t))
+            cols.append(int(col0) if col0 is not None else 0)
+
+        if update_state:
+            state.update_bank(x.detach(), label)
+            state.activated_cols.update(cols)
+        return torch.stack(samples, 0), cols
+
+    # ------------------------------------------------------------- forward
+    def forward(self, x, label=None, flagSyn=False, update_state=False):
         assert x.size()[0] == label.size()[0]
         assert x.size()[1] == self.in_feats
-        synthetic_embeddings,  y_combined , w_combined = mixup_data_euc_avg(
-            x, self.W, label
-            )
-        if flagSyn:
-            
-            # joint-L_syn: put the REAL prototypes W into the synthetic-class
-            # softmax denominator (as negatives), so each synthetic embedding
-            # (~ midpoint of a speaker pair) must be separable from real
-            # speakers too. This directly pushes the nearest real prototypes
-            # apart (margin), instead of the original syn-vs-syn-only softmax
-            # where synthetic classes never contrast against real speakers.
-            # Synthetic labels are offset by num_real so they index the
-            # synthetic columns, not the first real-speaker columns. Only the
-            # synthetic embeddings are classified here (L_real covers the real
-            # ones, so we avoid double-counting).
-            num_real = self.W.shape[1]
-            x_combined_0 = synthetic_embeddings.to(x.device)
-            w_combined_0 = torch.cat((self.W.to(x.device), w_combined.to(x.device)), dim=1)
-            y_combined_0 = (y_combined + num_real).to(x.device)
 
-            x_norm = torch.norm(x_combined_0, p=2, dim=1, keepdim=True).clamp(min=1e-12)
-            x_norm = torch.div(x_combined_0, x_norm)
-            w_norm = torch.norm(w_combined_0, p=2, dim=0, keepdim=True).clamp(min=1e-12)
-            w_norm = torch.div(w_combined_0, w_norm)
-            costh = torch.mm(x_norm, w_norm)
-            label_view = y_combined_0.view(-1,1) #label.view(-1, 1)
-            if label_view.is_cuda: label_view = label_view.cpu()
-            delt_costh = torch.zeros(costh.size()).scatter_(1, label_view, self.m)
-            if x.is_cuda: delt_costh = delt_costh.cuda()
-            costh_m = costh - delt_costh
-            costh_m_s = self.s * costh_m
-            
-            loss = self.ce(costh_m_s, y_combined_0) #label)
-            
-            final_loss = (loss)
-            acc = accuracy(costh_m_s.detach(), y_combined_0.detach(), topk=(1,))[0]
-            return final_loss, acc, synthetic_embeddings
-        else: 
+        if self.persistence:
+            synthetic, cols = self._gen_persistent(x, label, update_state)
+        else:
+            synthetic, y_oneshot, w_oneshot = self._gen_oneshot_slerp(x, label)
 
-            x_norm = torch.norm(x, p=2, dim=1, keepdim=True).clamp(min=1e-12)
-            x_norm = torch.div(x, x_norm)
-            w_norm = torch.norm(self.W, p=2, dim=0, keepdim=True).clamp(min=1e-12)
-            w_norm = torch.div(self.W, w_norm)
-            costh = torch.mm(x_norm, w_norm)
-            label_view =  label.view(-1, 1)
-            if label_view.is_cuda: label_view = label_view.cpu()
-            delt_costh = torch.zeros(costh.size()).scatter_(1, label_view, self.m)
-            if x.is_cuda: delt_costh = delt_costh.cuda()
-            costh_m = costh - delt_costh
-            costh_m_s = self.s * costh_m
-            
-            loss = self.ce(costh_m_s,  label)
-            
-            final_loss = (loss)
-            acc = accuracy(costh_m_s.detach(), label.detach(), topk=(1,))[0]
-            return final_loss, acc, synthetic_embeddings
+        if not flagSyn:
+            # L_real over the real prototypes only (avoid double-counting; L_syn
+            # handles the synthetic-vs-real contrast).
+            loss, acc = self._am_loss(x, self.W, label)
+            return loss, acc, synthetic
+
+        # ---- joint-L_syn: synthetic samples vs [ real ; synthetic ] ----------
+        if self.persistence:
+            active = sorted(self.synth.activated_cols)
+            if len(active) == 0:
+                # nothing activated yet: keep W_syn in the graph (DDP-safe) ~0 loss
+                loss = 0.0 * self.W_syn.sum() + 0.0 * self.W.sum()
+                return loss, torch.tensor(0.0, device=x.device), synthetic
+            pos = {c: i for i, c in enumerate(active)}
+            W_cols = torch.cat([self.W, self.W_syn[:, active]], dim=1)
+            target = torch.tensor([self.num_real + pos[c] for c in cols],
+                                  device=x.device, dtype=torch.int64)
+            loss, acc = self._am_loss(synthetic, W_cols, target)
+            # touch all of W_syn so every rank marks it 'used' every step (DDP).
+            loss = loss + 0.0 * self.W_syn.sum()
+            return loss, acc, synthetic
+        else:
+            W_cols = torch.cat([self.W, w_oneshot], dim=1)
+            target = (y_oneshot + self.num_real)
+            loss, acc = self._am_loss(synthetic, W_cols, target)
+            return loss, acc, synthetic

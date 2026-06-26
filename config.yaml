@@ -56,5 +56,15 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_joint_lsyn_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_persistent_synth_ddp"
 title: "caarma_mfa"
+
+# ── Persistent synthetic classes (professor's direction) ──────────────────
+# persistence: True  -> persistent synth-class table + learnable W_syn + memory
+#                       bank (the method). False -> SLERP one-shot (matched OFF
+#                       ablation: flip ONLY this flag to get the control run).
+persistence: True
+slerp_t: 0.5                 # SLERP interpolation coefficient (0.5 = midpoint)
+synth_bank_size: 10          # per-speaker embedding memory-bank depth (XBM-style)
+synth_max_factor: 4          # W_syn columns = synth_max_factor * num_spk
+discriminator_type: "spectral"   # "spectral" = 1-hidden MLP (professor: simple D); "mlp" = old 2-hidden

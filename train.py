@@ -21,7 +21,7 @@ from feature.build_feature import build_feature
 from functions.loader import super_dataset
 from criterion.build_criterion import build_criterion
 from model.model_build import build_model
-from model.discriminator_mix import MixupDiscriminator
+from model.discriminator_mix import MixupDiscriminator, Discriminator_spectral
 from helper.mixup_avg import mixup_data_euc_avg
 
 from scipy.interpolate import interp1d
@@ -47,7 +47,12 @@ class Task(LightningModule):
         self.config = config
         self.automatic_optimization = False
         
-        self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
+        # Professor's guidance: HuBERT is wrong as the discriminator here; use a
+        # simple one. "spectral" = 1-hidden-layer spectral-norm MLP (D->128->1).
+        if config.get('discriminator_type', 'spectral') == 'spectral':
+            self.discriminator = Discriminator_spectral(config['embedding_dim']).train()
+        else:
+            self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
 
         # HuBERT/WavLM discriminators need their frozen SSL backbone excluded
@@ -87,6 +92,13 @@ class Task(LightningModule):
         elif loss_ratio < 0.5:
             self.lambda_adv = max(self.lambda_adv * 0.9, 0.0001)
     
+    def on_train_epoch_start(self):
+        # Persistent synthetic classes: recompute the global-NN pair->column map
+        # from the current (DDP-synced) real prototypes and reset the per-epoch
+        # activated set. Identical across ranks (W is synced at the boundary).
+        if getattr(self.loss, 'persistence', False):
+            self.loss.synth.rebuild_pairing(self.loss.W)
+
     def training_step(self, batch, batch_idx):
         opt_main, opt_d = self.optimizers()
 
@@ -137,7 +149,9 @@ class Task(LightningModule):
         feature = self.features(waveform)
         embedding = self.model(feature)
         opt_main.zero_grad()
-        amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
+        # update_state=True only here (the single L_real M-step call): the memory
+        # bank and per-epoch activated-column set are advanced exactly once/step.
+        amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label, update_state=True)
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
 
         # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
