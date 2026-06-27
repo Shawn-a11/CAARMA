@@ -408,7 +408,10 @@ def cli_main():
 
     final_project = Task(features, model, criterion, config, learning_rate = config['init_lr'], weight_decay=config['weight_decay'], batch_size = config['batch_size'], num_workers = config['num_workers'], max_epochs = config['epochs'], trial_path= config['trial_path'], warmup_step = config['warmup_step'])
     
-    if config['checkpoint_path'] != 'None':
+    resume_ckpt_path = config.get('resume_from_checkpoint', 'None')
+    if resume_ckpt_path != 'None':
+        print("resume full training state from {}".format(resume_ckpt_path))
+    elif config['checkpoint_path'] != 'None':
         state_dict = torch.load(config['checkpoint_path'], map_location="cpu")["state_dict"]
         # print(state_dict.keys())
         # model_state_dict = model.state_dict()
@@ -498,7 +501,11 @@ def cli_main():
 
     #     trainer.fit(final_project, datamodule=dataloader)
     
-    trainer.fit(final_project, datamodule=dataloader)
+    trainer.fit(
+        final_project,
+        datamodule=dataloader,
+        ckpt_path=None if resume_ckpt_path == 'None' else resume_ckpt_path,
+    )
 
     #print("\n--- Running Immediate Validation ---")
     #trainer.validate(final_project, datamodule=dataloader, ckpt_path=config['checkpoint_path'])
