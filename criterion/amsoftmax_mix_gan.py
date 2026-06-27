@@ -170,11 +170,17 @@ class amsoftmax_gan(nn.Module):
 
         if len(samples) == 0:                       # degenerate-batch guard
             B = x.size(0)
-            partner = x[1] if B > 1 else x[0]
             key, col0, _, event = state.select_pair(labels[0])
+            if key is None or col0 is None:
+                raise RuntimeError(
+                    "Persistent synthetic generation failed: no assigned "
+                    "synthetic column is available. Increase synth_max_factor "
+                    "or reduce crp_topk."
+                )
+            partner = x[1] if B > 1 else x[0]
             samples.append(slerp(x[0], partner, self.slerp_t))
-            cols.append(int(col0) if col0 is not None else 0)
-            if update_state and key is not None and col0 is not None:
+            cols.append(int(col0))
+            if update_state:
                 source = "batch" if B > 1 else "self"
                 state.commit_visit(key, col0, event, source)
 

@@ -104,8 +104,9 @@ class PersistentSynthState:
                 partners = [int(j) for j in topk_idx[s]]
             for j in partners:
                 key = self._key(s, j)
-                self._ensure_col(key)
-                if key in self.pair_col and key not in self.candidate_pairs[s]:
+                if self.pair_strategy != "crp":
+                    self._ensure_col(key)
+                if key not in self.candidate_pairs[s]:
                     self.candidate_pairs[s].append(key)
 
         self._rebuild_pairs_by_speaker()
@@ -175,18 +176,13 @@ class PersistentSynthState:
             event = "reuse" if key in self.created_pairs else "new"
             return key, col, j, event
 
-        candidates = [k for k in self.candidate_pairs.get(s, []) if k in self.pair_col]
+        candidates = list(self.candidate_pairs.get(s, []))
         if not candidates:
-            j = self.spk_partner.get(s)
-            if j is None:
-                return None, None, None, "none"
-            key = self._key(s, j)
-            col = self._ensure_col(key)
-            event = "reuse" if key in self.created_pairs else "new"
-            return key, col, j, event
+            return self._select_assigned_fallback(s)
 
-        existing = [k for k in candidates if k in self.created_pairs]
-        novel = [k for k in candidates if k not in self.created_pairs]
+        assigned = [k for k in candidates if k in self.pair_col]
+        existing = [k for k in assigned if k in self.created_pairs]
+        novel = [k for k in candidates if k not in self.pair_col]
 
         if existing and novel:
             local_visits = sum(max(1, self.pair_visits[k]) for k in existing)
@@ -197,13 +193,44 @@ class PersistentSynthState:
 
         if choose_new:
             key = random.choice(novel)
+            col = self._ensure_col(key)
+            if col is None:
+                return self._select_assigned_fallback(s)
             event = "new"
         else:
+            if not existing:
+                reusable = assigned or self.pairs_by_spk.get(s, [])
+                if not reusable:
+                    return None, None, None, "none"
+                key = random.choice(reusable)
+                return key, self.pair_col[key], self._other(key, s), "reuse"
             weights = [max(1, self.pair_visits[k]) for k in existing]
             key = random.choices(existing, weights=weights, k=1)[0]
             event = "reuse"
+            col = self.pair_col[key]
 
-        return key, self.pair_col[key], self._other(key, s), event
+        return key, col, self._other(key, s), event
+
+    def _select_assigned_fallback(self, s):
+        """Reuse any already assigned pair for s when top-k creation is blocked.
+
+        This keeps training valid after the synthetic table reaches max_cols.
+        """
+        s = int(s)
+        reusable = self.pairs_by_spk.get(s, [])
+        if reusable:
+            weights = [max(1, self.pair_visits[k]) for k in reusable]
+            key = random.choices(reusable, weights=weights, k=1)[0]
+            return key, self.pair_col[key], self._other(key, s), "reuse"
+        j = self.spk_partner.get(s)
+        if j is None:
+            return None, None, None, "none"
+        key = self._key(s, j)
+        col = self._ensure_col(key)
+        if col is None:
+            return None, None, None, "none"
+        event = "reuse" if key in self.created_pairs else "new"
+        return key, col, j, event
 
     def commit_visit(self, key, col, event, source):
         """Record one successful synthetic sample for diagnostics and CRP state."""
