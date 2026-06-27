@@ -117,6 +117,14 @@ class PersistentSynthState:
         return frozenset((int(s), int(j))) if s != j else frozenset((int(s),))
 
     @staticmethod
+    def _serialise_key(key):
+        return tuple(sorted(int(v) for v in key))
+
+    @staticmethod
+    def _deserialise_key(values):
+        return frozenset(int(v) for v in values)
+
+    @staticmethod
     def _members(key):
         vals = tuple(key)
         if len(vals) == 1:
@@ -259,6 +267,91 @@ class PersistentSynthState:
             "bank_hit_rate": 0.0,
             "batch_hit_rate": 0.0,
         }
+
+    def state_dict(self):
+        """Serialise non-module state for Lightning/PyTorch checkpoints.
+
+        The learnable W_syn is saved by the criterion as a normal Parameter.
+        This method saves the identity table, visit counts, and memory bank.
+        Bank tensors are moved to CPU to keep checkpoints device-agnostic.
+        """
+        return {
+            "num_real": self.num_real,
+            "max_cols": self.max_cols,
+            "bank_size": self.bank_size,
+            "pair_strategy": self.pair_strategy,
+            "crp_alpha": self.crp_alpha,
+            "crp_topk": self.crp_topk,
+            "bank": {
+                int(spk): [emb.detach().cpu() for emb in queue]
+                for spk, queue in self.bank.items()
+            },
+            "pair_col": [
+                (self._serialise_key(key), int(col))
+                for key, col in self.pair_col.items()
+            ],
+            "spk_partner": {int(s): int(j) for s, j in self.spk_partner.items()},
+            "candidate_pairs": {
+                int(s): [self._serialise_key(key) for key in keys]
+                for s, keys in self.candidate_pairs.items()
+            },
+            "created_pairs": [self._serialise_key(key) for key in self.created_pairs],
+            "pair_visits": [
+                (self._serialise_key(key), int(count))
+                for key, count in self.pair_visits.items()
+            ],
+            "total_pair_visits": int(self.total_pair_visits),
+            "activated_cols": [int(c) for c in self.activated_cols],
+            "last_stats": dict(self.last_stats),
+        }
+
+    def load_state_dict(self, state):
+        """Restore state saved by state_dict().
+
+        Missing fields are tolerated so older checkpoints can still be loaded.
+        """
+        if not state:
+            return
+
+        self.bank_size = int(state.get("bank_size", self.bank_size))
+        self.pair_strategy = state.get("pair_strategy", self.pair_strategy)
+        self.crp_alpha = float(state.get("crp_alpha", self.crp_alpha))
+        self.crp_topk = int(state.get("crp_topk", self.crp_topk))
+
+        self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))
+        for spk, queue in state.get("bank", {}).items():
+            self.bank[int(spk)] = deque(
+                [emb.detach().cpu() for emb in queue],
+                maxlen=self.bank_size,
+            )
+
+        self.pair_col = {}
+        for key_values, col in state.get("pair_col", []):
+            self.pair_col[self._deserialise_key(key_values)] = int(col)
+
+        self.spk_partner = {
+            int(s): int(j) for s, j in state.get("spk_partner", {}).items()
+        }
+
+        self.candidate_pairs = defaultdict(list)
+        for s, keys in state.get("candidate_pairs", {}).items():
+            self.candidate_pairs[int(s)] = [
+                self._deserialise_key(key_values) for key_values in keys
+            ]
+
+        self.created_pairs = {
+            self._deserialise_key(key_values)
+            for key_values in state.get("created_pairs", [])
+        }
+
+        self.pair_visits = defaultdict(int)
+        for key_values, count in state.get("pair_visits", []):
+            self.pair_visits[self._deserialise_key(key_values)] = int(count)
+
+        self.total_pair_visits = int(state.get("total_pair_visits", 0))
+        self.activated_cols = set(int(c) for c in state.get("activated_cols", []))
+        self.last_stats = dict(state.get("last_stats", self._empty_stats()))
+        self._rebuild_pairs_by_speaker()
 
     @torch.no_grad()
     def update_bank(self, emb_detached, labels):
