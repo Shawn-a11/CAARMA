@@ -196,6 +196,17 @@ class Task(LightningModule):
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
         self.log('lambda_adv', self.lambda_adv, prog_bar=False, sync_dist=False)
+        if getattr(self.loss, 'persistence', False):
+            stats = self.loss.synth.last_stats
+            self.log('synth_table_size', stats['synth_table_size'], prog_bar=False, sync_dist=False)
+            self.log('active_synth_cols', stats['active_synth_cols'], prog_bar=False, sync_dist=False)
+            self.log('reuse_rate', stats['reuse_rate'], prog_bar=False, sync_dist=False)
+            self.log('new_pair_rate', stats['new_pair_rate'], prog_bar=False, sync_dist=False)
+            self.log('mean_visits_per_pair', stats['mean_visits_per_pair'], prog_bar=False, sync_dist=False)
+            self.log('pair_visit_entropy', stats['pair_visit_entropy'], prog_bar=False, sync_dist=False)
+            self.log('Ns_over_B', stats['Ns_over_B'], prog_bar=False, sync_dist=False)
+            self.log('bank_hit_rate', stats['bank_hit_rate'], prog_bar=False, sync_dist=False)
+            self.log('batch_hit_rate', stats['batch_hit_rate'], prog_bar=False, sync_dist=False)
 
 
             

@@ -17,7 +17,7 @@ class amsoftmax_gan(nn.Module):
         batch-local NN pairing, fresh per-batch synthetic classes whose prototype
         is the SLERP midpoint of the two real prototypes (recomputed, discarded).
 
-    persistence=True   -> persistent synthetic classes (professor's direction):
+    persistence=True   -> persistent synthetic classes:
         a stable global-NN pair->column map (helper.synth_table) gives every
         synthetic identity a LEARNABLE persistent prototype W_syn[:, col] that
         accumulates across batches; each visit SLERP-interpolates DIFFERENT real
@@ -25,11 +25,16 @@ class amsoftmax_gan(nn.Module):
         so the model learns the synthetic speaker's DISTRIBUTION instead of a
         single one-shot point. joint-L_syn classifies synthetic samples against
         [ real prototypes ; activated persistent synthetic prototypes ].
+
+        pair_strategy="fixed_nn" is the v1 control. pair_strategy="crp" is v2:
+        each anchor speaker chooses between reusing an introduced top-k pair and
+        creating a new top-k pair, with crp_alpha controlling the new-pair mass.
     """
 
     def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30,
                  persistence=False, slerp_t=0.5, synth_bank_size=10,
-                 synth_max_factor=4, **kwargs):
+                 synth_max_factor=4, pair_strategy="fixed_nn", crp_alpha=1.0,
+                 crp_topk=4, **kwargs):
         super(amsoftmax_gan, self).__init__()
         self.m = margin
         self.s = scale
@@ -42,6 +47,8 @@ class amsoftmax_gan(nn.Module):
 
         self.persistence = bool(persistence)
         self.slerp_t = float(slerp_t)
+        self._cached_synth = None
+        self._cached_cols = None
         if self.persistence:
             self.max_cols = int(synth_max_factor) * self.num_real
             # persistent learnable synthetic-class prototypes (DDP-synced).
@@ -50,10 +57,14 @@ class amsoftmax_gan(nn.Module):
             nn.init.xavier_normal_(self.W_syn, gain=1)
             # cross-batch state (pairing + per-speaker memory bank); plain python.
             self.synth = PersistentSynthState(self.num_real, self.max_cols,
-                                              bank_size=synth_bank_size)
+                                              bank_size=synth_bank_size,
+                                              pair_strategy=pair_strategy,
+                                              crp_alpha=crp_alpha,
+                                              crp_topk=crp_topk)
             print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f slerp_t=%.2f '
-                  'max_cols=%d bank=%d' % (self.m, self.s, self.slerp_t,
-                                           self.max_cols, synth_bank_size))
+                  'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f crp_topk=%d'
+                  % (self.m, self.s, self.slerp_t, self.max_cols,
+                     synth_bank_size, pair_strategy, crp_alpha, crp_topk))
         else:
             print('Initialised AM-Softmax (one-shot SLERP) m=%.3f s=%.3f slerp_t=%.2f'
                   % (self.m, self.s, self.slerp_t))
@@ -111,36 +122,46 @@ class amsoftmax_gan(nn.Module):
 
     # -------------------------------------------------------- persistent (ON)
     def _gen_persistent(self, x, label, update_state):
-        """SLERP of anchor (batch) and partner (batch or memory bank) per the
-        stable global-NN pairing. Returns (synthetic (Ns,D), cols [list], None)
-        or a 1-sample fallback so the discriminator/L_syn always have input."""
+        """SLERP of anchor and partner under fixed-NN or CRP pair selection.
+
+        Returns synthetic embeddings and persistent W_syn columns. In CRP mode,
+        visits are committed only when a usable partner embedding exists.
+        """
         state = self.synth
         labels = [int(l) for l in label.tolist()]
         idx_in_batch = {}
         for bi, l in enumerate(labels):
             idx_in_batch.setdefault(l, []).append(bi)
 
+        if update_state:
+            state.begin_batch_stats(x.size(0))
+
         samples, cols = [], []
         for bi, s in enumerate(labels):
-            col, j = state.col_of(s)
+            key, col, j, event = state.select_pair(s)
             if col is None:
                 continue
-            e_j = state.partner_embedding(j, idx_in_batch, x)
+            e_j, source = state.partner_embedding(j, idx_in_batch, x)
             if e_j is None:
                 continue
             samples.append(slerp(x[bi], e_j, self.slerp_t))
             cols.append(int(col))
+            if update_state:
+                state.commit_visit(key, col, event, source)
 
         if len(samples) == 0:                       # degenerate-batch guard
             B = x.size(0)
             partner = x[1] if B > 1 else x[0]
-            col0, _ = state.col_of(labels[0])
+            key, col0, _, event = state.select_pair(labels[0])
             samples.append(slerp(x[0], partner, self.slerp_t))
             cols.append(int(col0) if col0 is not None else 0)
+            if update_state and key is not None and col0 is not None:
+                source = "batch" if B > 1 else "self"
+                state.commit_visit(key, col0, event, source)
 
         if update_state:
             state.update_bank(x.detach(), label)
-            state.activated_cols.update(cols)
+            state.finalize_batch_stats()
         return torch.stack(samples, 0), cols
 
     # ------------------------------------------------------------- forward
@@ -149,7 +170,15 @@ class amsoftmax_gan(nn.Module):
         assert x.size()[1] == self.in_feats
 
         if self.persistence:
-            synthetic, cols = self._gen_persistent(x, label, update_state)
+            if flagSyn and self._cached_synth is not None:
+                synthetic, cols = self._cached_synth, self._cached_cols
+            else:
+                synthetic, cols = self._gen_persistent(x, label, update_state)
+                if update_state:
+                    # Reuse the exact same stochastic CRP samples for L_syn and
+                    # adversarial-G in this training step.
+                    self._cached_synth = synthetic
+                    self._cached_cols = cols
         else:
             synthetic, y_oneshot, w_oneshot = self._gen_oneshot_slerp(x, label)
 
@@ -165,6 +194,8 @@ class amsoftmax_gan(nn.Module):
             if len(active) == 0:
                 # nothing activated yet: keep W_syn in the graph (DDP-safe) ~0 loss
                 loss = 0.0 * self.W_syn.sum() + 0.0 * self.W.sum()
+                self._cached_synth = None
+                self._cached_cols = None
                 return loss, torch.tensor(0.0, device=x.device), synthetic
             pos = {c: i for i, c in enumerate(active)}
             W_cols = torch.cat([self.W, self.W_syn[:, active]], dim=1)
@@ -173,6 +204,8 @@ class amsoftmax_gan(nn.Module):
             loss, acc = self._am_loss(synthetic, W_cols, target)
             # touch all of W_syn so every rank marks it 'used' every step (DDP).
             loss = loss + 0.0 * self.W_syn.sum()
+            self._cached_synth = None
+            self._cached_cols = None
             return loss, acc, synthetic
         else:
             W_cols = torch.cat([self.W, w_oneshot], dim=1)

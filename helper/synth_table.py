@@ -19,11 +19,15 @@ past embeddings approximate current ones, so stale partner embeddings are fine.
 Persisting SYNTHETIC (interpolated) identities is the novelty vs MemVir
 (2103.16940), which only persists REAL past classes.
 
-CRP / stick-breaking create-vs-reuse control is deliberately NOT here yet: v1
-tests the persistence core (matched persistence ON vs OFF); CRP is the next axis.
+CRP / stick-breaking create-vs-reuse control is the v2 axis: instead of always
+using one fixed nearest-neighbour pair per anchor speaker, the state can choose
+between reusing an already introduced synthetic pair and creating a new pair
+from the anchor's top-k neighbours.
 """
 
 from collections import defaultdict, deque
+import math
+import random
 
 import torch
 import torch.nn.functional as F
@@ -59,18 +63,27 @@ class PersistentSynthState:
     W (the pairing) or a local approximation (the bank) -> rank-safe.
     """
 
-    def __init__(self, num_real, max_cols, bank_size=10):
+    def __init__(self, num_real, max_cols, bank_size=10, pair_strategy="fixed_nn",
+                 crp_alpha=1.0, crp_topk=4):
         self.num_real = int(num_real)
         self.max_cols = int(max_cols)
         self.bank_size = int(bank_size)
+        self.pair_strategy = pair_strategy
+        self.crp_alpha = float(crp_alpha)
+        self.crp_topk = int(crp_topk)
         self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))  # spk -> recent detached emb (D,)
         self.pair_col = {}            # frozenset({s,j}) -> col (PERSISTENT, never reassigned)
         self.spk_partner = {}         # s -> NN(s) for the current epoch
+        self.candidate_pairs = defaultdict(list)  # s -> candidate pair keys
+        self.created_pairs = set()     # pairs that have produced at least one synthetic sample
+        self.pair_visits = defaultdict(int)
+        self.total_pair_visits = 0
         self.activated_cols = set()   # columns used this epoch (reset each epoch)
+        self.last_stats = self._empty_stats()
 
     @torch.no_grad()
     def rebuild_pairing(self, W):
-        """Recompute global NN pairing from current real prototypes W (D, C).
+        """Recompute candidate pair sets from current real prototypes W (D, C).
 
         Columns are assigned persistently: a pair already in `pair_col` keeps its
         column; only genuinely new pairs consume a fresh column (until max_cols).
@@ -80,26 +93,172 @@ class PersistentSynthState:
         Wn = F.normalize(W.detach(), dim=0)          # (D, C)
         cos = Wn.t() @ Wn                            # (C, C)
         cos.fill_diagonal_(-2.0)
-        nn_idx = cos.argmax(dim=1).tolist()          # NN per speaker
-        self.spk_partner = {s: int(nn_idx[s]) for s in range(self.num_real)}
+        k = max(1, min(self.crp_topk, self.num_real - 1))
+        topk_idx = cos.topk(k=k, dim=1).indices.tolist()
+        self.spk_partner = {s: int(topk_idx[s][0]) for s in range(self.num_real)}
+        self.candidate_pairs = defaultdict(list)
+
         for s in range(self.num_real):
-            key = self._key(s, self.spk_partner[s])
-            if key not in self.pair_col and len(self.pair_col) < self.max_cols:
-                self.pair_col[key] = len(self.pair_col)
+            partners = [self.spk_partner[s]]
+            if self.pair_strategy == "crp":
+                partners = [int(j) for j in topk_idx[s]]
+            for j in partners:
+                key = self._key(s, j)
+                self._ensure_col(key)
+                if key in self.pair_col and key not in self.candidate_pairs[s]:
+                    self.candidate_pairs[s].append(key)
+
+        self._rebuild_pairs_by_speaker()
         self.activated_cols = set()
+        self.last_stats = self._empty_stats()
 
     @staticmethod
     def _key(s, j):
         return frozenset((int(s), int(j))) if s != j else frozenset((int(s),))
 
+    @staticmethod
+    def _members(key):
+        vals = tuple(key)
+        if len(vals) == 1:
+            return vals[0], vals[0]
+        return vals[0], vals[1]
+
+    def _other(self, key, s):
+        a, b = self._members(key)
+        return b if int(s) == a else a
+
+    def _ensure_col(self, key):
+        if key not in self.pair_col and len(self.pair_col) < self.max_cols:
+            self.pair_col[key] = len(self.pair_col)
+        return self.pair_col.get(key)
+
+    def _rebuild_pairs_by_speaker(self):
+        self.pairs_by_spk = defaultdict(list)
+        for key in self.pair_col:
+            a, b = self._members(key)
+            self.pairs_by_spk[a].append(key)
+            if b != a:
+                self.pairs_by_spk[b].append(key)
+
     def col_of(self, s):
         """Return (col, partner) for speaker s under the current epoch pairing.
         Returns (None, None) if the pair has no column (table full / not built)."""
-        j = self.spk_partner.get(int(s))
-        if j is None:
+        key, col, j, _ = self.select_pair(s)
+        if key is None:
             return None, None
-        col = self.pair_col.get(self._key(s, j))
         return col, j
+
+    def select_pair(self, s):
+        """Choose a synthetic pair for anchor speaker s.
+
+        fixed_nn: always use the current nearest-neighbour pair.
+        crp: choose between reusing an introduced pair containing s and creating
+        a new top-k-neighbour pair, with alpha controlling the create mass.
+        Returns (key, col, partner, event), where event is "new" or "reuse".
+        The caller commits the visit only after a usable partner embedding exists.
+        """
+        s = int(s)
+        if self.pair_strategy != "crp":
+            j = self.spk_partner.get(s)
+            if j is None:
+                return None, None, None, "none"
+            key = self._key(s, j)
+            col = self._ensure_col(key)
+            event = "reuse" if key in self.created_pairs else "new"
+            return key, col, j, event
+
+        candidates = [k for k in self.candidate_pairs.get(s, []) if k in self.pair_col]
+        if not candidates:
+            j = self.spk_partner.get(s)
+            if j is None:
+                return None, None, None, "none"
+            key = self._key(s, j)
+            col = self._ensure_col(key)
+            event = "reuse" if key in self.created_pairs else "new"
+            return key, col, j, event
+
+        existing = [k for k in candidates if k in self.created_pairs]
+        novel = [k for k in candidates if k not in self.created_pairs]
+
+        if existing and novel:
+            local_visits = sum(max(1, self.pair_visits[k]) for k in existing)
+            p_new = self.crp_alpha / (local_visits + self.crp_alpha)
+            choose_new = random.random() < p_new
+        else:
+            choose_new = bool(novel)
+
+        if choose_new:
+            key = random.choice(novel)
+            event = "new"
+        else:
+            weights = [max(1, self.pair_visits[k]) for k in existing]
+            key = random.choices(existing, weights=weights, k=1)[0]
+            event = "reuse"
+
+        return key, self.pair_col[key], self._other(key, s), event
+
+    def commit_visit(self, key, col, event, source):
+        """Record one successful synthetic sample for diagnostics and CRP state."""
+        self.created_pairs.add(key)
+        self.pair_visits[key] += 1
+        self.total_pair_visits += 1
+        self.activated_cols.add(int(col))
+        self._batch_stats["num_synth"] += 1
+        if event == "new":
+            self._batch_stats["new"] += 1
+        elif event == "reuse":
+            self._batch_stats["reuse"] += 1
+        if source == "bank":
+            self._batch_stats["bank"] += 1
+        elif source == "batch":
+            self._batch_stats["batch"] += 1
+
+    def begin_batch_stats(self, batch_size):
+        self._batch_stats = {
+            "batch_size": int(batch_size),
+            "num_synth": 0,
+            "new": 0,
+            "reuse": 0,
+            "bank": 0,
+            "batch": 0,
+        }
+
+    def finalize_batch_stats(self):
+        bs = max(1, self._batch_stats["batch_size"])
+        ns = max(1, self._batch_stats["num_synth"])
+        visits = [self.pair_visits[k] for k in self.created_pairs if self.pair_visits[k] > 0]
+        total = float(sum(visits))
+        if len(visits) > 1 and total > 0:
+            probs = [v / total for v in visits]
+            entropy = -sum(p * math.log(p + 1e-12) for p in probs) / math.log(len(probs))
+        else:
+            entropy = 0.0
+        created = max(1, len(self.created_pairs))
+        self.last_stats = {
+            "synth_table_size": float(len(self.created_pairs)),
+            "active_synth_cols": float(len(self.activated_cols)),
+            "reuse_rate": float(self._batch_stats["reuse"]) / ns,
+            "new_pair_rate": float(self._batch_stats["new"]) / ns,
+            "mean_visits_per_pair": float(self.total_pair_visits) / created,
+            "pair_visit_entropy": float(entropy),
+            "Ns_over_B": float(self._batch_stats["num_synth"]) / bs,
+            "bank_hit_rate": float(self._batch_stats["bank"]) / ns,
+            "batch_hit_rate": float(self._batch_stats["batch"]) / ns,
+        }
+        return self.last_stats
+
+    def _empty_stats(self):
+        return {
+            "synth_table_size": 0.0,
+            "active_synth_cols": 0.0,
+            "reuse_rate": 0.0,
+            "new_pair_rate": 0.0,
+            "mean_visits_per_pair": 0.0,
+            "pair_visit_entropy": 0.0,
+            "Ns_over_B": 0.0,
+            "bank_hit_rate": 0.0,
+            "batch_hit_rate": 0.0,
+        }
 
     @torch.no_grad()
     def update_bank(self, emb_detached, labels):
@@ -109,9 +268,9 @@ class PersistentSynthState:
 
     def partner_embedding(self, j, idx_in_batch, x):
         """Embedding for partner j: current batch (with grad) if present, else a
-        recent bank embedding (detached). Returns None if unavailable."""
+        recent bank embedding (detached). Returns (None, None) if unavailable."""
         if j in idx_in_batch:
-            return x[idx_in_batch[j][0]]
+            return x[idx_in_batch[j][0]], "batch"
         if len(self.bank[j]) > 0:
-            return self.bank[j][-1].to(x.device)
-        return None
+            return self.bank[j][-1].to(x.device), "bank"
+        return None, None
