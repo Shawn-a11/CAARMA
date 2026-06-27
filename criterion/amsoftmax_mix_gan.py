@@ -59,6 +59,23 @@ class amsoftmax_gan(nn.Module):
                   % (self.m, self.s, self.slerp_t))
         print('Embedding dim is {}, number of speakers is {}'.format(embedding_dim, num_classes))
 
+    def get_extra_state(self):
+        """Persist non-Parameter synthetic-class state in checkpoints."""
+        if not self.persistence:
+            return {"persistence": False}
+        return {
+            "persistence": True,
+            "synth": self.synth.state_dict(),
+        }
+
+    def set_extra_state(self, state):
+        """Restore synthetic-class state when loading a checkpoint."""
+        if not state or not getattr(self, "persistence", False):
+            return
+        synth_state = state.get("synth")
+        if synth_state is not None:
+            self.synth.load_state_dict(synth_state)
+
     # ------------------------------------------------------------------ utils
     def _am_loss(self, x_emb, W_cols, target):
         """AM-Softmax CE + top-1 acc. x_emb:(N,D) W_cols:(D,K) target:(N,) into K."""

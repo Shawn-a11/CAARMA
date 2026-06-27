@@ -92,6 +92,14 @@ class PersistentSynthState:
     def _key(s, j):
         return frozenset((int(s), int(j))) if s != j else frozenset((int(s),))
 
+    @staticmethod
+    def _serialise_key(key):
+        return tuple(sorted(int(v) for v in key))
+
+    @staticmethod
+    def _deserialise_key(values):
+        return frozenset(int(v) for v in values)
+
     def col_of(self, s):
         """Return (col, partner) for speaker s under the current epoch pairing.
         Returns (None, None) if the pair has no column (table full / not built)."""
@@ -100,6 +108,54 @@ class PersistentSynthState:
             return None, None
         col = self.pair_col.get(self._key(s, j))
         return col, j
+
+    def state_dict(self):
+        """Serialise non-module state for Lightning/PyTorch checkpoints.
+
+        The learnable W_syn is saved by the criterion as a normal Parameter.
+        This method saves the persistent identity table and memory bank. Bank
+        tensors are moved to CPU to keep checkpoints device-agnostic.
+        """
+        return {
+            "num_real": self.num_real,
+            "max_cols": self.max_cols,
+            "bank_size": self.bank_size,
+            "bank": {
+                int(spk): [emb.detach().cpu() for emb in queue]
+                for spk, queue in self.bank.items()
+            },
+            "pair_col": [
+                (self._serialise_key(key), int(col))
+                for key, col in self.pair_col.items()
+            ],
+            "spk_partner": {int(s): int(j) for s, j in self.spk_partner.items()},
+            "activated_cols": [int(c) for c in self.activated_cols],
+        }
+
+    def load_state_dict(self, state):
+        """Restore state saved by state_dict().
+
+        Missing fields are tolerated so older checkpoints can still be loaded.
+        """
+        if not state:
+            return
+
+        self.bank_size = int(state.get("bank_size", self.bank_size))
+        self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))
+        for spk, queue in state.get("bank", {}).items():
+            self.bank[int(spk)] = deque(
+                [emb.detach().cpu() for emb in queue],
+                maxlen=self.bank_size,
+            )
+
+        self.pair_col = {}
+        for key_values, col in state.get("pair_col", []):
+            self.pair_col[self._deserialise_key(key_values)] = int(col)
+
+        self.spk_partner = {
+            int(s): int(j) for s, j in state.get("spk_partner", {}).items()
+        }
+        self.activated_cols = set(int(c) for c in state.get("activated_cols", []))
 
     @torch.no_grad()
     def update_bank(self, emb_detached, labels):
