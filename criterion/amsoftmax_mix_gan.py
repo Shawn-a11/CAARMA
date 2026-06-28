@@ -8,6 +8,7 @@ import torch.nn.functional as F
 
 from .utils import accuracy
 from helper.synth_table import slerp, PersistentSynthState
+from helper.speaker_meta import build_attr_map
 
 
 class amsoftmax_gan(nn.Module):
@@ -34,7 +35,8 @@ class amsoftmax_gan(nn.Module):
     def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30,
                  persistence=False, slerp_t=0.5, synth_bank_size=10,
                  synth_max_factor=4, pair_strategy="fixed_nn", crp_alpha=1.0,
-                 crp_topk=4, **kwargs):
+                 crp_topk=4, mixup_constraint="none", train_csv=None,
+                 meta_csv=None, **kwargs):
         super(amsoftmax_gan, self).__init__()
         self.m = margin
         self.s = scale
@@ -47,6 +49,7 @@ class amsoftmax_gan(nn.Module):
 
         self.persistence = bool(persistence)
         self.slerp_t = float(slerp_t)
+        self.mixup_constraint = mixup_constraint or "none"
         self._cached_synth = None
         self._cached_cols = None
         if self.persistence:
@@ -55,16 +58,31 @@ class amsoftmax_gan(nn.Module):
             self.W_syn = torch.nn.Parameter(torch.randn(embedding_dim, self.max_cols),
                                             requires_grad=True)
             nn.init.xavier_normal_(self.W_syn, gain=1)
+            spk_attr = None
+            attr_constraint = "none"
+            if self.mixup_constraint != "none":
+                assert train_csv and meta_csv, (
+                    "mixup_constraint requires dataset/train_csv and meta_csv"
+                )
+                spk_attr = build_attr_map(
+                    train_csv, meta_csv, self.num_real,
+                    attr=self.mixup_constraint,
+                )
+                attr_constraint = self.mixup_constraint
             # cross-batch state (pairing + per-speaker memory bank); plain python.
             self.synth = PersistentSynthState(self.num_real, self.max_cols,
                                               bank_size=synth_bank_size,
                                               pair_strategy=pair_strategy,
                                               crp_alpha=crp_alpha,
-                                              crp_topk=crp_topk)
+                                              crp_topk=crp_topk,
+                                              spk_attr=spk_attr,
+                                              attr_constraint=attr_constraint)
             print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f slerp_t=%.2f '
-                  'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f crp_topk=%d'
+                  'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f crp_topk=%d '
+                  'mixup_constraint=%s'
                   % (self.m, self.s, self.slerp_t, self.max_cols,
-                     synth_bank_size, pair_strategy, crp_alpha, crp_topk))
+                     synth_bank_size, pair_strategy, crp_alpha, crp_topk,
+                     self.mixup_constraint))
         else:
             print('Initialised AM-Softmax (one-shot SLERP) m=%.3f s=%.3f slerp_t=%.2f'
                   % (self.m, self.s, self.slerp_t))

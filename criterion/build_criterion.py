@@ -10,7 +10,10 @@ def build_criterion(config):
                                   synth_max_factor=config.get('synth_max_factor', 4),
                                   pair_strategy=config.get('pair_strategy', 'fixed_nn'),
                                   crp_alpha=config.get('crp_alpha', 1.0),
-                                  crp_topk=config.get('crp_topk', 4))
+                                  crp_topk=config.get('crp_topk', 4),
+                                  mixup_constraint=config.get('mixup_constraint', 'none'),
+                                  train_csv=config.get('dataset'),
+                                  meta_csv=config.get('meta_csv'))
     elif config['criterion'] == 'AMSoftmax':
         criterion = amsoftmax(embedding_dim=config['embedding_dim'], num_classes=config['num_spk'], m=0.2, s=30)
     else:

@@ -64,13 +64,18 @@ class PersistentSynthState:
     """
 
     def __init__(self, num_real, max_cols, bank_size=10, pair_strategy="fixed_nn",
-                 crp_alpha=1.0, crp_topk=4):
+                 crp_alpha=1.0, crp_topk=4, spk_attr=None,
+                 attr_constraint="none"):
         self.num_real = int(num_real)
         self.max_cols = int(max_cols)
         self.bank_size = int(bank_size)
         self.pair_strategy = pair_strategy
         self.crp_alpha = float(crp_alpha)
         self.crp_topk = int(crp_topk)
+        self.spk_attr = None
+        if spk_attr is not None:
+            self.spk_attr = torch.as_tensor(spk_attr, dtype=torch.long).cpu()
+        self.attr_constraint = attr_constraint or "none"
         self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))  # spk -> recent detached emb (D,)
         self.pair_col = {}            # frozenset({s,j}) -> col (PERSISTENT, never reassigned)
         self.spk_partner = {}         # s -> NN(s) for the current epoch
@@ -94,7 +99,16 @@ class PersistentSynthState:
         cos = Wn.t() @ Wn                            # (C, C)
         cos.fill_diagonal_(-2.0)
         k = max(1, min(self.crp_topk, self.num_real - 1))
-        topk_idx = cos.topk(k=k, dim=1).indices.tolist()
+        topk_idx = []
+        for s in range(self.num_real):
+            scores = cos[s].clone()
+            if self._use_attr_constraint():
+                allowed = self._same_attr_mask(s).to(scores.device)
+                if allowed.any():
+                    scores[~allowed] = -2.0
+                # If metadata is missing for this speaker, keep the original
+                # unconstrained NN fallback instead of disabling synthesis.
+            topk_idx.append(scores.topk(k=k, dim=0).indices.tolist())
         self.spk_partner = {s: int(topk_idx[s][0]) for s in range(self.num_real)}
         self.candidate_pairs = defaultdict(list)
 
@@ -131,6 +145,19 @@ class PersistentSynthState:
         if len(vals) == 1:
             return vals[0], vals[0]
         return vals[0], vals[1]
+
+    def _use_attr_constraint(self):
+        return self.attr_constraint != "none" and self.spk_attr is not None
+
+    def _same_attr_mask(self, s):
+        attr = self.spk_attr
+        if attr is None or int(s) >= attr.numel() or int(attr[int(s)]) < 0:
+            mask = torch.ones(self.num_real, dtype=torch.bool)
+            mask[int(s)] = False
+            return mask
+        mask = attr[:self.num_real] == attr[int(s)]
+        mask[int(s)] = False
+        return mask
 
     def _other(self, key, s):
         a, b = self._members(key)
@@ -309,6 +336,8 @@ class PersistentSynthState:
             "pair_strategy": self.pair_strategy,
             "crp_alpha": self.crp_alpha,
             "crp_topk": self.crp_topk,
+            "spk_attr": None if self.spk_attr is None else self.spk_attr.cpu(),
+            "attr_constraint": self.attr_constraint,
             "bank": {
                 int(spk): [emb.detach().cpu() for emb in queue]
                 for spk, queue in self.bank.items()
@@ -344,6 +373,9 @@ class PersistentSynthState:
         self.pair_strategy = state.get("pair_strategy", self.pair_strategy)
         self.crp_alpha = float(state.get("crp_alpha", self.crp_alpha))
         self.crp_topk = int(state.get("crp_topk", self.crp_topk))
+        self.attr_constraint = state.get("attr_constraint", self.attr_constraint)
+        if state.get("spk_attr") is not None:
+            self.spk_attr = torch.as_tensor(state["spk_attr"], dtype=torch.long).cpu()
 
         self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))
         for spk, queue in state.get("bank", {}).items():
