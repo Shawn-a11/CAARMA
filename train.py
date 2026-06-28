@@ -5,6 +5,7 @@ import torch.distributed as dist
 #from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.strategies import DDPStrategy
 
+import math
 import random
 import torch
 import torch.nn as nn
@@ -67,6 +68,87 @@ class Task(LightningModule):
 
         # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
         self.lambda_adv = 0.25
+        self._reset_crp_epoch_stats()
+
+    def _reset_crp_epoch_stats(self):
+        self._crp_new_rate_sum = 0.0
+        self._crp_reuse_rate_sum = 0.0
+        self._crp_entropy_sum = 0.0
+        self._crp_epoch_steps = 0
+        self._crp_last_observed_new_rate = 0.0
+        self._crp_last_target_new_rate = 0.0
+
+    def _crp_target_new_rate(self, epoch):
+        """Target create rate for feedback-controlled CRP.
+
+        This is intentionally a target behaviour, not a direct alpha schedule.
+        Alpha is updated from the gap between observed and target new-pair rate.
+        """
+        if self.config.get('crp_alpha_control', 'fixed') != 'feedback':
+            return float(self.config.get('crp_target_new_rate', 0.0))
+
+        schedule = self.config.get('crp_target_schedule', 'linear_decay')
+        if schedule == 'constant':
+            return float(self.config.get('crp_target_new_rate', 0.10))
+
+        start = float(self.config.get('crp_target_new_rate_start', 0.25))
+        end = float(self.config.get('crp_target_new_rate_end', 0.05))
+        decay_epochs = max(1.0, float(self.config.get('crp_target_decay_epochs', 20)))
+        progress = min(1.0, max(0.0, float(epoch) / decay_epochs))
+        return start + (end - start) * progress
+
+    def _apply_crp_feedback_update(self):
+        if not getattr(self.loss, 'persistence', False):
+            return
+        if not hasattr(self.loss, 'synth'):
+            return
+        if self.loss.synth.pair_strategy != 'crp':
+            return
+        if self.config.get('crp_alpha_control', 'fixed') != 'feedback':
+            return
+        if self._crp_epoch_steps <= 0:
+            return
+
+        stats = torch.tensor(
+            [self._crp_new_rate_sum, self._crp_reuse_rate_sum,
+             self._crp_entropy_sum, float(self._crp_epoch_steps)],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(stats, op=dist.ReduceOp.SUM)
+
+        count = max(1.0, float(stats[3].item()))
+        observed_new = float(stats[0].item()) / count
+        observed_reuse = float(stats[1].item()) / count
+        observed_entropy = float(stats[2].item()) / count
+        target_new = self._crp_target_new_rate(self.current_epoch)
+
+        eta = float(self.config.get('crp_alpha_eta', 0.5))
+        alpha_min = float(self.config.get('crp_alpha_min', 0.1))
+        alpha_max = float(self.config.get('crp_alpha_max', 4.0))
+        old_alpha = float(self.loss.synth.crp_alpha)
+        new_alpha = old_alpha * math.exp(eta * (target_new - observed_new))
+        new_alpha = max(alpha_min, min(alpha_max, new_alpha))
+        self.loss.synth.crp_alpha = new_alpha
+
+        self._crp_last_observed_new_rate = observed_new
+        self._crp_last_target_new_rate = target_new
+        self.log('crp_alpha_current', new_alpha, prog_bar=False, sync_dist=False)
+        self.log('crp_target_new_rate', target_new, prog_bar=False, sync_dist=False)
+        self.log('crp_observed_new_rate_epoch', observed_new, prog_bar=False, sync_dist=False)
+        self.log('crp_observed_reuse_rate_epoch', observed_reuse, prog_bar=False, sync_dist=False)
+        self.log('crp_observed_entropy_epoch', observed_entropy, prog_bar=False, sync_dist=False)
+
+        if self.trainer.is_global_zero:
+            print(
+                "Feedback CRP alpha update: epoch={} observed_new={:.4f} "
+                "target_new={:.4f} alpha {:.4f}->{:.4f} "
+                "reuse={:.4f} entropy={:.4f}".format(
+                    self.current_epoch, observed_new, target_new,
+                    old_alpha, new_alpha, observed_reuse, observed_entropy
+                )
+            )
 
     def set_discriminator_grad(self, requires_grad):
         for param in self.discriminator.parameters():
@@ -97,7 +179,14 @@ class Task(LightningModule):
         # from the current (DDP-synced) real prototypes and reset the per-epoch
         # activated set. Identical across ranks (W is synced at the boundary).
         if getattr(self.loss, 'persistence', False):
+            if hasattr(self.loss, 'synth'):
+                self.log('crp_alpha_current', self.loss.synth.crp_alpha,
+                         prog_bar=False, sync_dist=False)
+                self.log('crp_target_new_rate',
+                         self._crp_target_new_rate(self.current_epoch),
+                         prog_bar=False, sync_dist=False)
             self.loss.synth.rebuild_pairing(self.loss.W)
+        self._reset_crp_epoch_stats()
 
     def training_step(self, batch, batch_idx):
         opt_main, opt_d = self.optimizers()
@@ -198,6 +287,10 @@ class Task(LightningModule):
         self.log('lambda_adv', self.lambda_adv, prog_bar=False, sync_dist=False)
         if getattr(self.loss, 'persistence', False):
             stats = self.loss.synth.last_stats
+            self._crp_new_rate_sum += float(stats['new_pair_rate'])
+            self._crp_reuse_rate_sum += float(stats['reuse_rate'])
+            self._crp_entropy_sum += float(stats['pair_visit_entropy'])
+            self._crp_epoch_steps += 1
             self.log('synth_table_size', stats['synth_table_size'], prog_bar=False, sync_dist=False)
             self.log('active_synth_cols', stats['active_synth_cols'], prog_bar=False, sync_dist=False)
             self.log('reuse_rate', stats['reuse_rate'], prog_bar=False, sync_dist=False)
@@ -207,6 +300,9 @@ class Task(LightningModule):
             self.log('Ns_over_B', stats['Ns_over_B'], prog_bar=False, sync_dist=False)
             self.log('bank_hit_rate', stats['bank_hit_rate'], prog_bar=False, sync_dist=False)
             self.log('batch_hit_rate', stats['batch_hit_rate'], prog_bar=False, sync_dist=False)
+            if hasattr(self.loss, 'synth'):
+                self.log('crp_alpha_current', self.loss.synth.crp_alpha,
+                         prog_bar=False, sync_dist=False)
 
 
             
@@ -237,9 +333,31 @@ class Task(LightningModule):
             [embedding_scheduler, discriminator_scheduler]
 
     def on_train_epoch_end(self):
+        self._apply_crp_feedback_update()
         main_scheduler, d_scheduler = self.lr_schedulers()
         main_scheduler.step()
         d_scheduler.step()
+
+    def on_save_checkpoint(self, checkpoint):
+        if getattr(self.loss, 'persistence', False) and hasattr(self.loss, 'synth'):
+            checkpoint['feedback_crp_state'] = {
+                'crp_alpha': float(self.loss.synth.crp_alpha),
+                'last_observed_new_rate': float(self._crp_last_observed_new_rate),
+                'last_target_new_rate': float(self._crp_last_target_new_rate),
+            }
+
+    def on_load_checkpoint(self, checkpoint):
+        state = checkpoint.get('feedback_crp_state')
+        if state and getattr(self.loss, 'persistence', False) and hasattr(self.loss, 'synth'):
+            self.loss.synth.crp_alpha = float(
+                state.get('crp_alpha', self.loss.synth.crp_alpha)
+            )
+            self._crp_last_observed_new_rate = float(
+                state.get('last_observed_new_rate', 0.0)
+            )
+            self._crp_last_target_new_rate = float(
+                state.get('last_target_new_rate', 0.0)
+            )
     def on_test_epoch_start(self):
         return self.on_validation_epoch_start()
     

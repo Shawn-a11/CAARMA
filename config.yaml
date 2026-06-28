@@ -57,7 +57,7 @@ mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
 resume_from_checkpoint: "None"  # full Lightning resume: optimizer/scheduler/epoch/global_step + synth table
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_crp_persistent_synth_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_feedback_crp_persistent_synth_ddp"
 title: "caarma_mfa"
 
 # ── Persistent synthetic classes ──────────────────────────────────────────
@@ -68,7 +68,15 @@ persistence: True
 slerp_t: 0.5                 # SLERP interpolation coefficient (0.5 = midpoint)
 synth_bank_size: 10          # per-speaker embedding memory-bank depth (XBM-style)
 synth_max_factor: 4          # W_syn columns = synth_max_factor * num_spk
-pair_strategy: "crp"         # "fixed_nn" = v1; "crp" = v2 create-vs-reuse sampling
-crp_alpha: 1.0               # larger -> create new synthetic pairs more often
+pair_strategy: "crp"         # "fixed_nn" = v1; "crp" = v2/v3 create-vs-reuse sampling
+crp_alpha: 1.0               # v2 fixed alpha; v3 uses this as the initial alpha
 crp_topk: 4                  # new pairs are sampled from each anchor's top-k NN speakers
+crp_alpha_control: "feedback"      # "fixed" = v2; "feedback" = v3 target-rate controller
+crp_alpha_min: 0.1
+crp_alpha_max: 4.0
+crp_alpha_eta: 0.5                 # multiplicative update strength
+crp_target_schedule: "linear_decay" # target new-pair rate, not a direct alpha schedule
+crp_target_new_rate_start: 0.25
+crp_target_new_rate_end: 0.05
+crp_target_decay_epochs: 20
 discriminator_type: "spectral"   # "spectral" = 1-hidden MLP (professor: simple D); "mlp" = old 2-hidden
