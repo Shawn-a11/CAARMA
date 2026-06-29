@@ -57,7 +57,7 @@ mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
 resume_from_checkpoint: "None"  # full Lightning resume: optimizer/scheduler/epoch/global_step + synth table
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_hard_gender_crp_persistent_synth_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_gender_medium_hard_crp_persistent_synth_ddp"
 title: "caarma_mfa"
 
 # ── Persistent synthetic classes ──────────────────────────────────────────
@@ -73,4 +73,8 @@ crp_alpha: 1.0               # larger -> create new synthetic pairs more often
 crp_topk: 4                  # new pairs are sampled from each anchor's top-k NN speakers
 mixup_constraint: "gender"   # hard same-gender CRP candidate filtering
 meta_csv: "/root/autodl-tmp/voxcele1_dataset/vox1_meta.csv"
+pair_filter: "cosine_percentile" # medium-hard valid pairs by classifier-prototype cosine
+cosine_pct_low: 0.60
+cosine_pct_high: 0.90
+skip_invalid_pairs: True      # no fallback to invalid/cross-gender synthetic pairs
 discriminator_type: "spectral"   # "spectral" = 1-hidden MLP (professor: simple D); "mlp" = old 2-hidden

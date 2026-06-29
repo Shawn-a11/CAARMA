@@ -36,7 +36,8 @@ class amsoftmax_gan(nn.Module):
                  persistence=False, slerp_t=0.5, synth_bank_size=10,
                  synth_max_factor=4, pair_strategy="fixed_nn", crp_alpha=1.0,
                  crp_topk=4, mixup_constraint="none", train_csv=None,
-                 meta_csv=None, **kwargs):
+                 meta_csv=None, pair_filter="none", cosine_pct_low=0.60,
+                 cosine_pct_high=0.90, skip_invalid_pairs=False, **kwargs):
         super(amsoftmax_gan, self).__init__()
         self.m = margin
         self.s = scale
@@ -76,13 +77,18 @@ class amsoftmax_gan(nn.Module):
                                               crp_alpha=crp_alpha,
                                               crp_topk=crp_topk,
                                               spk_attr=spk_attr,
-                                              attr_constraint=attr_constraint)
+                                              attr_constraint=attr_constraint,
+                                              pair_filter=pair_filter,
+                                              cosine_pct_low=cosine_pct_low,
+                                              cosine_pct_high=cosine_pct_high,
+                                              skip_invalid_pairs=skip_invalid_pairs)
             print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f slerp_t=%.2f '
                   'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f crp_topk=%d '
-                  'mixup_constraint=%s'
+                  'mixup_constraint=%s pair_filter=%s pct=[%.2f, %.2f] skip_invalid=%s'
                   % (self.m, self.s, self.slerp_t, self.max_cols,
                      synth_bank_size, pair_strategy, crp_alpha, crp_topk,
-                     self.mixup_constraint))
+                     self.mixup_constraint, pair_filter, cosine_pct_low,
+                     cosine_pct_high, skip_invalid_pairs))
         else:
             print('Initialised AM-Softmax (one-shot SLERP) m=%.3f s=%.3f slerp_t=%.2f'
                   % (self.m, self.s, self.slerp_t))

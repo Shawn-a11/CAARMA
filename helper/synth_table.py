@@ -65,7 +65,9 @@ class PersistentSynthState:
 
     def __init__(self, num_real, max_cols, bank_size=10, pair_strategy="fixed_nn",
                  crp_alpha=1.0, crp_topk=4, spk_attr=None,
-                 attr_constraint="none"):
+                 attr_constraint="none", pair_filter="none",
+                 cosine_pct_low=0.60, cosine_pct_high=0.90,
+                 skip_invalid_pairs=False):
         self.num_real = int(num_real)
         self.max_cols = int(max_cols)
         self.bank_size = int(bank_size)
@@ -76,6 +78,10 @@ class PersistentSynthState:
         if spk_attr is not None:
             self.spk_attr = torch.as_tensor(spk_attr, dtype=torch.long).cpu()
         self.attr_constraint = attr_constraint or "none"
+        self.pair_filter = pair_filter or "none"
+        self.cosine_pct_low = float(cosine_pct_low)
+        self.cosine_pct_high = float(cosine_pct_high)
+        self.skip_invalid_pairs = bool(skip_invalid_pairs)
         self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))  # spk -> recent detached emb (D,)
         self.pair_col = {}            # frozenset({s,j}) -> col (PERSISTENT, never reassigned)
         self.spk_partner = {}         # s -> NN(s) for the current epoch
@@ -102,17 +108,23 @@ class PersistentSynthState:
         topk_idx = []
         for s in range(self.num_real):
             scores = cos[s].clone()
+            allowed = torch.ones(self.num_real, dtype=torch.bool, device=scores.device)
+            allowed[s] = False
             if self._use_attr_constraint():
                 allowed = self._same_attr_mask(s).to(scores.device)
-                if allowed.any():
-                    scores[~allowed] = -2.0
-                # If metadata is missing for this speaker, keep the original
-                # unconstrained NN fallback instead of disabling synthesis.
-            topk_idx.append(scores.topk(k=k, dim=0).indices.tolist())
-        self.spk_partner = {s: int(topk_idx[s][0]) for s in range(self.num_real)}
+                # If metadata is missing and skip_invalid_pairs is true, this
+                # speaker simply contributes no synthetic pair this epoch.
+            candidates = self._filter_candidate_indices(scores, allowed, k)
+            topk_idx.append(candidates)
+        self.spk_partner = {
+            s: int(topk_idx[s][0]) if topk_idx[s] else None
+            for s in range(self.num_real)
+        }
         self.candidate_pairs = defaultdict(list)
 
         for s in range(self.num_real):
+            if self.spk_partner[s] is None:
+                continue
             partners = [self.spk_partner[s]]
             if self.pair_strategy == "crp":
                 partners = [int(j) for j in topk_idx[s]]
@@ -126,6 +138,35 @@ class PersistentSynthState:
         self._rebuild_pairs_by_speaker()
         self.activated_cols = set()
         self.last_stats = self._empty_stats()
+
+    def _filter_candidate_indices(self, scores, allowed, k):
+        """Return deterministic candidate partners for one anchor speaker."""
+        if not allowed.any():
+            if self.skip_invalid_pairs:
+                return []
+            allowed = torch.ones_like(allowed)
+            allowed.fill_diagonal_(False) if allowed.dim() == 2 else None
+
+        filtered_scores = scores.clone()
+        filtered_scores[~allowed] = -2.0
+
+        if self.pair_filter == "cosine_percentile":
+            valid_scores = scores[allowed]
+            if valid_scores.numel() == 0:
+                return []
+            low = torch.quantile(valid_scores, self.cosine_pct_low)
+            high = torch.quantile(valid_scores, self.cosine_pct_high)
+            window = allowed & (scores >= low) & (scores <= high)
+            if not window.any():
+                return [] if self.skip_invalid_pairs else filtered_scores.topk(k=k, dim=0).indices.tolist()
+            filtered_scores = scores.clone()
+            filtered_scores[~window] = -2.0
+
+        valid_count = int((filtered_scores > -2.0).sum().item())
+        if valid_count == 0:
+            return []
+        kk = max(1, min(k, valid_count))
+        return [int(i) for i in filtered_scores.topk(k=kk, dim=0).indices.tolist()]
 
     @staticmethod
     def _key(s, j):
@@ -152,8 +193,10 @@ class PersistentSynthState:
     def _same_attr_mask(self, s):
         attr = self.spk_attr
         if attr is None or int(s) >= attr.numel() or int(attr[int(s)]) < 0:
-            mask = torch.ones(self.num_real, dtype=torch.bool)
-            mask[int(s)] = False
+            mask = torch.zeros(self.num_real, dtype=torch.bool)
+            if not self.skip_invalid_pairs:
+                mask[:] = True
+                mask[int(s)] = False
             return mask
         mask = attr[:self.num_real] == attr[int(s)]
         mask[int(s)] = False
@@ -205,6 +248,8 @@ class PersistentSynthState:
 
         candidates = list(self.candidate_pairs.get(s, []))
         if not candidates:
+            if self.skip_invalid_pairs:
+                return None, None, None, "none"
             return self._select_assigned_fallback(s)
 
         assigned = [k for k in candidates if k in self.pair_col]
@@ -338,6 +383,10 @@ class PersistentSynthState:
             "crp_topk": self.crp_topk,
             "spk_attr": None if self.spk_attr is None else self.spk_attr.cpu(),
             "attr_constraint": self.attr_constraint,
+            "pair_filter": self.pair_filter,
+            "cosine_pct_low": self.cosine_pct_low,
+            "cosine_pct_high": self.cosine_pct_high,
+            "skip_invalid_pairs": self.skip_invalid_pairs,
             "bank": {
                 int(spk): [emb.detach().cpu() for emb in queue]
                 for spk, queue in self.bank.items()
@@ -374,6 +423,10 @@ class PersistentSynthState:
         self.crp_alpha = float(state.get("crp_alpha", self.crp_alpha))
         self.crp_topk = int(state.get("crp_topk", self.crp_topk))
         self.attr_constraint = state.get("attr_constraint", self.attr_constraint)
+        self.pair_filter = state.get("pair_filter", self.pair_filter)
+        self.cosine_pct_low = float(state.get("cosine_pct_low", self.cosine_pct_low))
+        self.cosine_pct_high = float(state.get("cosine_pct_high", self.cosine_pct_high))
+        self.skip_invalid_pairs = bool(state.get("skip_invalid_pairs", self.skip_invalid_pairs))
         if state.get("spk_attr") is not None:
             self.spk_attr = torch.as_tensor(state["spk_attr"], dtype=torch.long).cpu()
 
