@@ -57,7 +57,7 @@ mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
 resume_from_checkpoint: "None"  # full Lightning resume: optimizer/scheduler/epoch/global_step + synth table
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_hard_gender_crp_persistent_synth_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_boundary_utility_crp_persistent_synth_ddp"
 title: "caarma_mfa"
 
 # ── Persistent synthetic classes ──────────────────────────────────────────
@@ -73,4 +73,21 @@ crp_alpha: 1.0               # larger -> create new synthetic pairs more often
 crp_topk: 4                  # new pairs are sampled from each anchor's top-k NN speakers
 mixup_constraint: "gender"   # hard same-gender CRP candidate filtering
 meta_csv: "/root/autodl-tmp/voxcele1_dataset/vox1_meta.csv"
+
+# Boundary-informative persistent pseudo-speaker selection.
+# Gender defines the valid candidate space; boundary utility decides which
+# SLERP pseudo-speakers are worth creating/revisiting.
+boundary_utility: True
+boundary_candidate_pool: 64   # per-anchor same-gender cosine pre-pool for cheap scoring
+boundary_tau_parent: 0.95     # reject pseudo-speakers collapsed into either parent
+boundary_tau_low: 0.0         # reject out-of-manifold pseudo-speakers
+boundary_tau_high: 0.90       # reject pseudo-speakers too close to a real non-parent
+boundary_margin_gap: 0.05     # prefer ambiguous top1/top2 non-parent neighborhoods
+
+# Capped/decayed CRP reuse and fixed synthetic budget.
+synth_per_batch: 8            # batch_size=50 -> synthetic ratio about 0.16
+crp_count_cap: 20.0           # prevent early mixture classes from dominating forever
+crp_count_decay: 0.02         # epoch-level effective-count decay
+crp_utility_kappa: 2.0        # stronger reuse for boundary-useful synthetic classes
+utility_ema_beta: 0.9         # EMA of actual synthetic margin violation
 discriminator_type: "spectral"   # "spectral" = 1-hidden MLP (professor: simple D); "mlp" = old 2-hidden

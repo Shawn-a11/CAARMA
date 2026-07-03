@@ -207,6 +207,10 @@ class Task(LightningModule):
             self.log('Ns_over_B', stats['Ns_over_B'], prog_bar=False, sync_dist=False)
             self.log('bank_hit_rate', stats['bank_hit_rate'], prog_bar=False, sync_dist=False)
             self.log('batch_hit_rate', stats['batch_hit_rate'], prog_bar=False, sync_dist=False)
+            self.log('boundary_utility_mean', stats.get('boundary_utility_mean', 0.0),
+                     prog_bar=False, sync_dist=False)
+            self.log('boundary_valid_per_anchor', stats.get('boundary_valid_per_anchor', 0.0),
+                     prog_bar=False, sync_dist=False)
 
 
             
