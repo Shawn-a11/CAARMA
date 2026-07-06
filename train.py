@@ -93,12 +93,15 @@ class Task(LightningModule):
         return F.normalize(condition, dim=1).to(device)
 
     def _synth_conditions(self, cols, device):
-        if not getattr(self.loss, "persistence", False):
-            raise RuntimeError("Projection MLP-D synthetic conditions require persistence=True")
-        if len(cols) == 0:
-            raise RuntimeError("Projection MLP-D received no synthetic columns")
-        idx = torch.tensor(cols, device=self.loss.W_syn.device, dtype=torch.long)
-        condition = self.loss.W_syn[:, idx].detach().t()
+        if getattr(self.loss, "persistence", False):
+            if len(cols) == 0:
+                raise RuntimeError("Projection MLP-D received no synthetic columns")
+            idx = torch.tensor(cols, device=self.loss.W_syn.device, dtype=torch.long)
+            condition = self.loss.W_syn[:, idx].detach().t()
+        else:
+            condition = getattr(self.loss, "last_synth_conditions", None)
+            if condition is None:
+                raise RuntimeError("Projection MLP-D received no one-shot synthetic conditions")
         return F.normalize(condition, dim=1).to(device)
 
     def _disc_forward(self, embeddings, conditions=None):
@@ -157,15 +160,21 @@ class Task(LightningModule):
             [self.normalize(embedding_d), self.normalize(synth_for_d)], dim=0
         )
         if self._disc_requires_condition():
-            if len(synth_cols_d) != synth_for_d.size(0):
+            if getattr(self.loss, "persistence", False) and len(synth_cols_d) != synth_for_d.size(0):
                 raise RuntimeError(
                     "Projection MLP-D condition mismatch in D step: "
                     f"{len(synth_cols_d)} cols for {synth_for_d.size(0)} synthetic rows"
                 )
+            synth_cond_d = self._synth_conditions(synth_cols_d, combined_d.device)
+            if synth_cond_d.size(0) != synth_for_d.size(0):
+                raise RuntimeError(
+                    "Projection MLP-D condition mismatch in D step: "
+                    f"{synth_cond_d.size(0)} conditions for {synth_for_d.size(0)} synthetic rows"
+                )
             cond_d = torch.cat(
                 [
                     self._real_conditions(label, combined_d.device),
-                    self._synth_conditions(synth_cols_d, combined_d.device),
+                    synth_cond_d,
                 ],
                 dim=0,
             )
@@ -213,14 +222,20 @@ class Task(LightningModule):
             [self.normalize(synthetic_embeddings), self.normalize(embedding)], dim=0
         )
         if self._disc_requires_condition():
-            if len(synth_cols_g) != synthetic_embeddings.size(0):
+            if getattr(self.loss, "persistence", False) and len(synth_cols_g) != synthetic_embeddings.size(0):
                 raise RuntimeError(
                     "Projection MLP-D condition mismatch in G step: "
                     f"{len(synth_cols_g)} cols for {synthetic_embeddings.size(0)} synthetic rows"
                 )
+            synth_cond_g = self._synth_conditions(synth_cols_g, combined_g.device)
+            if synth_cond_g.size(0) != synthetic_embeddings.size(0):
+                raise RuntimeError(
+                    "Projection MLP-D condition mismatch in G step: "
+                    f"{synth_cond_g.size(0)} conditions for {synthetic_embeddings.size(0)} synthetic rows"
+                )
             cond_g = torch.cat(
                 [
-                    self._synth_conditions(synth_cols_g, combined_g.device),
+                    synth_cond_g,
                     self._real_conditions(label, combined_g.device),
                 ],
                 dim=0,
