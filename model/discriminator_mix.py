@@ -254,6 +254,32 @@ class ProjectionDiscriminator_spectral(nn.Module):
         return self.head(h) + projection
 
 
+class ConcatConditionDiscriminator_spectral(nn.Module):
+    """Conditioned MLP-D ablation using concat(e, q) instead of projection."""
+
+    requires_condition = True
+
+    def __init__(self, embedding_dim, hidden_dim=128):
+        super().__init__()
+        self.fc1 = spectral_norm(nn.Linear(embedding_dim * 2, hidden_dim))
+        self.activation = nn.LeakyReLU(0.2)
+        self.fc2 = spectral_norm(nn.Linear(hidden_dim, 1))
+
+        n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print(
+            "[ConcatConditionMLP-D] architecture: "
+            f"D([e, q]) = MLP(concat(e, q)) "
+            f"({embedding_dim * 2}->{hidden_dim}->1, {n_params:,} trainable params)"
+        )
+
+    def forward(self, x, condition):
+        if condition is None:
+            raise ValueError("ConcatConditionDiscriminator_spectral requires a condition tensor")
+        condition = F.normalize(condition, dim=1)
+        h = self.activation(self.fc1(torch.cat([x, condition], dim=1)))
+        return self.fc2(h)
+
+
 class Discriminator(nn.Module):
     # initializers
     def __init__(self, d=64):

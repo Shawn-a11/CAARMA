@@ -22,6 +22,7 @@ from functions.loader import super_dataset
 from criterion.build_criterion import build_criterion
 from model.model_build import build_model
 from model.discriminator_mix import (
+    ConcatConditionDiscriminator_spectral,
     MixupDiscriminator,
     Discriminator_spectral,
     ProjectionDiscriminator_spectral,
@@ -58,6 +59,8 @@ class Task(LightningModule):
             self.discriminator = Discriminator_spectral(config['embedding_dim']).train()
         elif discriminator_type == 'projection':
             self.discriminator = ProjectionDiscriminator_spectral(config['embedding_dim']).train()
+        elif discriminator_type == 'concat':
+            self.discriminator = ConcatConditionDiscriminator_spectral(config['embedding_dim']).train()
         else:
             self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
