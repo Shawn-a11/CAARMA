@@ -214,6 +214,10 @@ class Task(LightningModule):
         # Paper Eq.(1): L_D = BCE(D(e),1) + BCE(D(e_syn),0)
         d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
                   self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
+        with torch.no_grad():
+            d_real_acc = (real_preds > 0).float().mean()
+            d_fake_acc = (fake_preds_d < 0).float().mean()
+            d_acc = 0.5 * (d_real_acc + d_fake_acc)
         self.manual_backward(d_loss)
         opt_d.step()
         self.untoggle_optimizer(opt_d)
@@ -294,6 +298,9 @@ class Task(LightningModule):
         self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
+        self.log('d_acc', d_acc, prog_bar=False, sync_dist=False)
+        self.log('d_real_logit', real_preds.detach().mean(), prog_bar=False, sync_dist=False)
+        self.log('d_fake_logit', fake_preds_d.detach().mean(), prog_bar=False, sync_dist=False)
         self.log('lambda_adv', self.lambda_adv, prog_bar=False, sync_dist=False)
         if getattr(self.loss, 'persistence', False):
             stats = self.loss.synth.last_stats
