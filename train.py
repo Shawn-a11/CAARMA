@@ -264,7 +264,7 @@ class Task(LightningModule):
         self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
-        self.log('d_acc', d_acc, prog_bar=False, sync_dist=False)
+        self.log('d_acc', d_acc, prog_bar=True, sync_dist=False)
         self.log('d_real_logit', real_preds.detach().mean(), prog_bar=False, sync_dist=False)
         self.log('d_fake_logit', fake_preds_d.detach().mean(), prog_bar=False, sync_dist=False)
         self.log('lambda_adv', self.lambda_adv, prog_bar=False, sync_dist=False)
