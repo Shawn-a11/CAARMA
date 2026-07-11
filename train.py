@@ -74,6 +74,18 @@ class Task(LightningModule):
 
         # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
         self.lambda_adv = 0.25
+        self.condition_shuffle = config.get('condition_shuffle', 'none')
+        if self.condition_shuffle not in ('none', 'within_bank'):
+            raise ValueError(
+                "condition_shuffle must be 'none' or 'within_bank', "
+                f"got {self.condition_shuffle!r}"
+            )
+        if self.condition_shuffle == 'within_bank':
+            print(
+                "[condition ablation] using within-bank shuffled q: "
+                "real conditions are shuffled only among W_y rows; "
+                "synthetic conditions are shuffled only among W_syn rows"
+            )
 
     def set_discriminator_grad(self, requires_grad):
         for param in self.discriminator.parameters():
@@ -100,6 +112,29 @@ class Task(LightningModule):
         idx = torch.tensor(cols, device=self.loss.W_syn.device, dtype=torch.long)
         condition = self.loss.W_syn[:, idx].detach().t()
         return F.normalize(condition, dim=1).to(device)
+
+    def _deranged_perm(self, n, device):
+        if n <= 1:
+            return torch.arange(n, device=device)
+        base = torch.arange(n, device=device)
+        for _ in range(8):
+            perm = torch.randperm(n, device=device)
+            if torch.all(perm != base):
+                return perm
+        # Deterministic fallback: every row receives a different row's q.
+        return torch.roll(base, shifts=1)
+
+    def _maybe_shuffle_conditions(self, conditions, part_sizes):
+        if self.condition_shuffle != 'within_bank' or conditions is None:
+            return conditions
+        parts = []
+        start = 0
+        for size in part_sizes:
+            part = conditions[start:start + size]
+            perm = self._deranged_perm(size, part.device)
+            parts.append(part[perm])
+            start += size
+        return torch.cat(parts, dim=0)
 
     def _disc_forward(self, embeddings, conditions=None):
         if self._disc_requires_condition():
@@ -169,6 +204,7 @@ class Task(LightningModule):
                 ],
                 dim=0,
             )
+            cond_d = self._maybe_shuffle_conditions(cond_d, [B, synth_for_d.size(0)])
         else:
             cond_d = None
         preds_d_all = self._disc_forward(combined_d, cond_d)
@@ -225,6 +261,7 @@ class Task(LightningModule):
                 ],
                 dim=0,
             )
+            cond_g = self._maybe_shuffle_conditions(cond_g, [Ns, embedding.size(0)])
         else:
             cond_g = None
         preds_g_all = self._disc_forward(combined_g, cond_g)
