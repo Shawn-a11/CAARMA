@@ -254,6 +254,32 @@ class ProjectionDiscriminator_spectral(nn.Module):
         return self.head(h) + projection
 
 
+class QOnlyConditionDiscriminator_spectral(nn.Module):
+    """Leakage control: predict real/fake from q only, ignoring embedding e."""
+
+    requires_condition = True
+
+    def __init__(self, embedding_dim, hidden_dim=128):
+        super().__init__()
+        self.fc1 = spectral_norm(nn.Linear(embedding_dim, hidden_dim))
+        self.activation = nn.LeakyReLU(0.2)
+        self.fc2 = spectral_norm(nn.Linear(hidden_dim, 1))
+
+        n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print(
+            "[QOnlyConditionMLP-D] architecture: "
+            f"D(q) = MLP(q), embedding e is ignored "
+            f"({embedding_dim}->{hidden_dim}->1, {n_params:,} trainable params)"
+        )
+
+    def forward(self, x, condition):
+        if condition is None:
+            raise ValueError("QOnlyConditionDiscriminator_spectral requires a condition tensor")
+        condition = F.normalize(condition, dim=1)
+        h = self.activation(self.fc1(condition))
+        return self.fc2(h)
+
+
 class Discriminator(nn.Module):
     # initializers
     def __init__(self, d=64):

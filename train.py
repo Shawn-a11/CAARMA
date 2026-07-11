@@ -25,6 +25,7 @@ from model.discriminator_mix import (
     MixupDiscriminator,
     Discriminator_spectral,
     ProjectionDiscriminator_spectral,
+    QOnlyConditionDiscriminator_spectral,
 )
 from helper.mixup_avg import mixup_data_euc_avg
 
@@ -58,6 +59,8 @@ class Task(LightningModule):
             self.discriminator = Discriminator_spectral(config['embedding_dim']).train()
         elif discriminator_type == 'projection':
             self.discriminator = ProjectionDiscriminator_spectral(config['embedding_dim']).train()
+        elif discriminator_type == 'q_only':
+            self.discriminator = QOnlyConditionDiscriminator_spectral(config['embedding_dim']).train()
         else:
             self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
