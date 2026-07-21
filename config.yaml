@@ -56,5 +56,12 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_joint_lsyn_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_prototype_only_virtual_speakers_ddp"
 title: "caarma_mfa"
+
+# Generate virtual classifier prototypes from real W, but never assign them
+# positive speech. They appear only as extra AM-Softmax negative columns.
+prototype_only_virtual: True
+virtual_negative_topk: 4
+virtual_negative_t: 0.5
+virtual_negatives_per_batch: 8

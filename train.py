@@ -46,13 +46,24 @@ class Task(LightningModule):
         self.trials = np.loadtxt(trial_path, str)
         self.config = config
         self.automatic_optimization = False
-        
-        self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
-        self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
+
+        self.prototype_only_virtual = bool(
+            config.get('prototype_only_virtual', False)
+        )
+        if self.prototype_only_virtual:
+            self.discriminator = None
+            self.BCE_loss = None
+            print(
+                '[training] prototype-only virtual-speaker mode: '
+                'synthetic embeddings, L_syn, and adversarial D/G steps are disabled'
+            )
+        else:
+            self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
+            self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
 
         # HuBERT/WavLM discriminators need their frozen SSL backbone excluded
         # from DDP traversal. The MLP discriminator ablation has no SSL module.
-        if hasattr(self.discriminator, "hubert"):
+        if self.discriminator is not None and hasattr(self.discriminator, "hubert"):
             hubert_ignore = []
             for name, _ in self.discriminator.hubert.named_parameters():
                 hubert_ignore.append(f"discriminator.hubert.{name}")
@@ -64,6 +75,8 @@ class Task(LightningModule):
         self.lambda_adv = 0.25
 
     def set_discriminator_grad(self, requires_grad):
+        if self.discriminator is None:
+            return
         for param in self.discriminator.parameters():
             param.requires_grad_(requires_grad)
 
@@ -88,10 +101,44 @@ class Task(LightningModule):
             self.lambda_adv = max(self.lambda_adv * 0.9, 0.0001)
     
     def training_step(self, batch, batch_idx):
-        opt_main, opt_d = self.optimizers()
-
         waveform = batch['waveform']
         label = batch['mapped_id']
+
+        if self.prototype_only_virtual:
+            opt_main = self.optimizers()
+            if isinstance(opt_main, (list, tuple)):
+                opt_main = opt_main[0]
+
+            self.toggle_optimizer(opt_main)
+            feature = self.features(waveform)
+            embedding = self.model(feature)
+            opt_main.zero_grad()
+            amsoftmax_loss, acc, _ = self.loss(embedding, label)
+            self.manual_backward(amsoftmax_loss)
+            opt_main.step()
+            self.untoggle_optimizer(opt_main)
+
+            if self.trainer.global_step < self.config['warmup_step']:
+                lr_scale = min(
+                    1.0,
+                    float(self.trainer.global_step + 1)
+                    / float(self.config['warmup_step']),
+                )
+                for pg in opt_main.param_groups:
+                    pg['lr'] = lr_scale * self.learning_rate
+
+            self.log('am_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
+            self.log('acc', acc, prog_bar=True, sync_dist=False)
+            self.log(
+                'virtual_negatives',
+                float(self.loss.last_virtual_count),
+                prog_bar=True,
+                sync_dist=False,
+            )
+            self.log('total_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
+            return amsoftmax_loss.detach()
+
+        opt_main, opt_d = self.optimizers()
 
         # ── Algorithm 2, Step 1: Update Discriminator every batch ────────
         # Encoder is detached from the D update; only D receives gradients.
@@ -189,6 +236,10 @@ class Task(LightningModule):
             betas=(0.9, 0.999)  # Standard Adam betas
         )
 
+        embedding_scheduler = StepLR(embedding_optimizer, step_size = 4, gamma=0.5)
+        if self.prototype_only_virtual:
+            return [embedding_optimizer], [embedding_scheduler]
+
         # Lower learning rate for discriminator
         discriminator_optimizer = AdamW(
             self.discriminator.parameters(),
@@ -198,13 +249,18 @@ class Task(LightningModule):
             betas=(0.5, 0.999)
         )
         
-        embedding_scheduler = StepLR(embedding_optimizer, step_size = 4, gamma=0.5)
         discriminator_scheduler = StepLR(discriminator_optimizer, step_size = 4, gamma=0.5)
 
         return [embedding_optimizer, discriminator_optimizer], \
             [embedding_scheduler, discriminator_scheduler]
 
     def on_train_epoch_end(self):
+        if self.prototype_only_virtual:
+            scheduler = self.lr_schedulers()
+            if isinstance(scheduler, (list, tuple)):
+                scheduler = scheduler[0]
+            scheduler.step()
+            return
         main_scheduler, d_scheduler = self.lr_schedulers()
         main_scheduler.step()
         d_scheduler.step()
