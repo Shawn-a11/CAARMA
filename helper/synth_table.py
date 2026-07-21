@@ -30,6 +30,7 @@ import math
 import random
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 
 
@@ -64,21 +65,30 @@ class PersistentSynthState:
     """
 
     def __init__(self, num_real, max_cols, bank_size=10, pair_strategy="fixed_nn",
-                 crp_alpha=1.0, crp_topk=4):
+                 crp_alpha=1.0, crp_topk=4, reuse_policy="popularity"):
         self.num_real = int(num_real)
         self.max_cols = int(max_cols)
         self.bank_size = int(bank_size)
         self.pair_strategy = pair_strategy
         self.crp_alpha = float(crp_alpha)
         self.crp_topk = int(crp_topk)
+        self.reuse_policy = str(reuse_policy)
+        if self.reuse_policy not in {"popularity", "fisher_ucb"}:
+            raise ValueError("reuse_policy must be 'popularity' or 'fisher_ucb'")
         self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))  # spk -> recent detached emb (D,)
         self.pair_col = {}            # frozenset({s,j}) -> col (PERSISTENT, never reassigned)
+        self.col_pair = {}            # inverse map used by DDP tensor reductions
         self.spk_partner = {}         # s -> NN(s) for the current epoch
         self.candidate_pairs = defaultdict(list)  # s -> candidate pair keys
         self.created_pairs = set()     # pairs that have produced at least one synthetic sample
         self.pair_visits = defaultdict(int)
         self.total_pair_visits = 0
+        self.pair_reward_sum = defaultdict(float)
+        self.pair_reward_updates = defaultdict(int)
+        self.total_reward_updates = 0
+        self.pair_last_p = {}
         self.activated_cols = set()   # columns used this epoch (reset each epoch)
+        self._reset_pending()
         self.last_stats = self._empty_stats()
 
     @torch.no_grad()
@@ -98,16 +108,40 @@ class PersistentSynthState:
         self.spk_partner = {s: int(topk_idx[s][0]) for s in range(self.num_real)}
         self.candidate_pairs = defaultdict(list)
 
+        # Columns reserved for candidates that were never visited carry no
+        # learned pseudo-class identity and can be safely recycled. Created
+        # classes keep their columns permanently across epochs.
+        self.pair_col = {
+            key: col for key, col in self.pair_col.items()
+            if key in self.created_pairs
+        }
+        self.col_pair = {col: key for key, col in self.pair_col.items()}
+
+        all_candidate_keys = set()
         for s in range(self.num_real):
             partners = [self.spk_partner[s]]
             if self.pair_strategy == "crp":
                 partners = [int(j) for j in topk_idx[s]]
             for j in partners:
                 key = self._key(s, j)
-                if self.pair_strategy != "crp":
-                    self._ensure_col(key)
+                all_candidate_keys.add(key)
                 if key not in self.candidate_pairs[s]:
                     self.candidate_pairs[s].append(key)
+
+        # Reserve pair columns in a deterministic global order. This does not
+        # create a CRP class; creation still happens on its first committed
+        # visit. It only guarantees that every DDP rank gives a pair the same
+        # W_syn column even when the ranks observe different local speakers.
+        free_cols = iter(sorted(set(range(self.max_cols)) - set(self.col_pair)))
+        for key in sorted(all_candidate_keys, key=self._serialise_key):
+            if key in self.pair_col:
+                continue
+            try:
+                col = next(free_cols)
+            except StopIteration:
+                break
+            self.pair_col[key] = col
+            self.col_pair[col] = key
 
         self._rebuild_pairs_by_speaker()
         self.activated_cols = set()
@@ -138,12 +172,17 @@ class PersistentSynthState:
 
     def _ensure_col(self, key):
         if key not in self.pair_col and len(self.pair_col) < self.max_cols:
-            self.pair_col[key] = len(self.pair_col)
+            used = set(self.pair_col.values())
+            col = next(c for c in range(self.max_cols) if c not in used)
+            self.pair_col[key] = col
+            self.col_pair[col] = key
         return self.pair_col.get(key)
 
     def _rebuild_pairs_by_speaker(self):
         self.pairs_by_spk = defaultdict(list)
+        self.col_pair = {}
         for key in self.pair_col:
+            self.col_pair[self.pair_col[key]] = key
             a, b = self._members(key)
             self.pairs_by_spk[a].append(key)
             if b != a:
@@ -156,6 +195,32 @@ class PersistentSynthState:
         if key is None:
             return None, None
         return col, j
+
+    def _ucb_score(self, key):
+        """Standard UCB1 score for one persistent synthetic class."""
+        n = self.pair_reward_updates[key]
+        if n <= 0:
+            return float("inf")
+        total_updates = max(2, self.total_reward_updates)
+        mean_reward = self.pair_reward_sum[key] / n
+        return mean_reward + math.sqrt(2.0 * math.log(total_updates) / n)
+
+    def _select_reusable(self, keys):
+        if not keys:
+            return None
+        if self.reuse_policy == "fisher_ucb":
+            # Stable tie breaks make the policy reproducible and avoid adding a
+            # second exploration hyperparameter on top of standard UCB1.
+            return min(
+                keys,
+                key=lambda key: (
+                    -self._ucb_score(key),
+                    self.pair_visits[key],
+                    self._serialise_key(key),
+                ),
+            )
+        weights = [max(1, self.pair_visits[key]) for key in keys]
+        return random.choices(keys, weights=weights, k=1)[0]
 
     def select_pair(self, s):
         """Choose a synthetic pair for anchor speaker s.
@@ -182,7 +247,7 @@ class PersistentSynthState:
 
         assigned = [k for k in candidates if k in self.pair_col]
         existing = [k for k in assigned if k in self.created_pairs]
-        novel = [k for k in candidates if k not in self.pair_col]
+        novel = [k for k in assigned if k not in self.created_pairs]
 
         if existing and novel:
             local_visits = sum(max(1, self.pair_visits[k]) for k in existing)
@@ -193,9 +258,7 @@ class PersistentSynthState:
 
         if choose_new:
             key = random.choice(novel)
-            col = self._ensure_col(key)
-            if col is None:
-                return self._select_assigned_fallback(s)
+            col = self.pair_col[key]
             event = "new"
         else:
             if not existing:
@@ -204,8 +267,7 @@ class PersistentSynthState:
                     return None, None, None, "none"
                 key = random.choice(reusable)
                 return key, self.pair_col[key], self._other(key, s), "reuse"
-            weights = [max(1, self.pair_visits[k]) for k in existing]
-            key = random.choices(existing, weights=weights, k=1)[0]
+            key = self._select_reusable(existing)
             event = "reuse"
             col = self.pair_col[key]
 
@@ -217,26 +279,27 @@ class PersistentSynthState:
         This keeps training valid after the synthetic table reaches max_cols.
         """
         s = int(s)
-        reusable = self.pairs_by_spk.get(s, [])
+        reusable = [
+            key for key in self.pairs_by_spk.get(s, [])
+            if key in self.created_pairs
+        ]
         if reusable:
-            weights = [max(1, self.pair_visits[k]) for k in reusable]
-            key = random.choices(reusable, weights=weights, k=1)[0]
+            key = self._select_reusable(reusable)
             return key, self.pair_col[key], self._other(key, s), "reuse"
         j = self.spk_partner.get(s)
         if j is None:
             return None, None, None, "none"
         key = self._key(s, j)
-        col = self._ensure_col(key)
+        col = self.pair_col.get(key)
         if col is None:
             return None, None, None, "none"
         event = "reuse" if key in self.created_pairs else "new"
         return key, col, j, event
 
     def commit_visit(self, key, col, event, source):
-        """Record one successful synthetic sample for diagnostics and CRP state."""
-        self.created_pairs.add(key)
-        self.pair_visits[key] += 1
-        self.total_pair_visits += 1
+        """Stage one successful visit; global state is committed after DDP sync."""
+        self._pending_visits[int(col)] += 1
+        self._pending_activated.add(int(col))
         self.activated_cols.add(int(col))
         self._batch_stats["num_synth"] += 1
         if event == "new":
@@ -249,6 +312,7 @@ class PersistentSynthState:
             self._batch_stats["batch"] += 1
 
     def begin_batch_stats(self, batch_size):
+        self._reset_pending()
         self._batch_stats = {
             "batch_size": int(batch_size),
             "num_synth": 0,
@@ -256,7 +320,95 @@ class PersistentSynthState:
             "reuse": 0,
             "bank": 0,
             "batch": 0,
+            "utility_sum": 0.0,
+            "utility_count": 0,
         }
+
+    def _reset_pending(self):
+        self._pending_visits = defaultdict(int)
+        self._pending_reward_sum = defaultdict(float)
+        self._pending_reward_count = defaultdict(int)
+        self._pending_p_sum = defaultdict(float)
+        self._pending_p_count = defaultdict(int)
+        self._pending_activated = set()
+
+    @torch.no_grad()
+    def record_utilities(self, cols, probabilities, fisher_utilities):
+        """Stage bounded class-level rewards from the current joint-L_syn logits.
+
+        One arm pull is one class exposure on one rank. Repeated samples of the
+        same class in a batch are averaged before the Fisher utility and positive
+        learning-progress signal are combined.
+        """
+        grouped_p = defaultdict(list)
+        grouped_u = defaultdict(list)
+        for col, probability, utility in zip(
+                cols, probabilities.detach().cpu().tolist(),
+                fisher_utilities.detach().cpu().tolist()):
+            grouped_p[int(col)].append(float(probability))
+            grouped_u[int(col)].append(float(utility))
+
+        for col, values in grouped_p.items():
+            key = self.col_pair.get(col)
+            if key is None:
+                continue
+            mean_p = sum(values) / len(values)
+            mean_fisher = sum(grouped_u[col]) / len(grouped_u[col])
+            previous_p = self.pair_last_p.get(key)
+            progress = 0.0 if previous_p is None else max(0.0, mean_p - previous_p)
+            reward = max(mean_fisher, progress)
+            reward = min(1.0, max(0.0, reward))
+
+            self._pending_reward_sum[col] += reward
+            self._pending_reward_count[col] += 1
+            self._pending_p_sum[col] += mean_p
+            self._pending_p_count[col] += 1
+            self._batch_stats["utility_sum"] += reward
+            self._batch_stats["utility_count"] += 1
+
+    @torch.no_grad()
+    def synchronize_pending(self, device):
+        """All-reduce visit/reward deltas so every DDP rank has one CRP state."""
+        pending = torch.zeros((6, self.max_cols), dtype=torch.float64, device=device)
+        for col, count in self._pending_visits.items():
+            pending[0, col] = count
+        for col, value in self._pending_reward_sum.items():
+            pending[1, col] = value
+        for col, count in self._pending_reward_count.items():
+            pending[2, col] = count
+        for col, value in self._pending_p_sum.items():
+            pending[3, col] = value
+        for col, count in self._pending_p_count.items():
+            pending[4, col] = count
+        for col in self._pending_activated:
+            pending[5, col] = 1.0
+
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(pending, op=dist.ReduceOp.SUM)
+
+        changed = torch.nonzero(pending.abs().sum(dim=0) > 0, as_tuple=False)
+        for col in changed.flatten().cpu().tolist():
+            key = self.col_pair.get(int(col))
+            if key is None:
+                continue
+            visits = int(round(pending[0, col].item()))
+            if visits > 0:
+                self.created_pairs.add(key)
+                self.pair_visits[key] += visits
+                self.total_pair_visits += visits
+            reward_count = int(round(pending[2, col].item()))
+            if reward_count > 0:
+                self.pair_reward_sum[key] += pending[1, col].item()
+                self.pair_reward_updates[key] += reward_count
+                self.total_reward_updates += reward_count
+            p_count = int(round(pending[4, col].item()))
+            if p_count > 0:
+                self.pair_last_p[key] = pending[3, col].item() / p_count
+            if pending[5, col].item() > 0:
+                self.activated_cols.add(int(col))
+
+        self._reset_pending()
+        return self.finalize_batch_stats()
 
     def finalize_batch_stats(self):
         bs = max(1, self._batch_stats["batch_size"])
@@ -269,6 +421,11 @@ class PersistentSynthState:
         else:
             entropy = 0.0
         created = max(1, len(self.created_pairs))
+        utility_count = max(1, self._batch_stats["utility_count"])
+        scored = [
+            self._ucb_score(key) for key in self.created_pairs
+            if self.pair_reward_updates[key] > 0
+        ]
         self.last_stats = {
             "synth_table_size": float(len(self.created_pairs)),
             "active_synth_cols": float(len(self.activated_cols)),
@@ -279,6 +436,9 @@ class PersistentSynthState:
             "Ns_over_B": float(self._batch_stats["num_synth"]) / bs,
             "bank_hit_rate": float(self._batch_stats["bank"]) / ns,
             "batch_hit_rate": float(self._batch_stats["batch"]) / ns,
+            "mean_fisher_ucb_reward": self._batch_stats["utility_sum"] / utility_count,
+            "mean_ucb_score": sum(scored) / max(1, len(scored)),
+            "utility_coverage": float(len(scored)) / created,
         }
         return self.last_stats
 
@@ -293,6 +453,9 @@ class PersistentSynthState:
             "Ns_over_B": 0.0,
             "bank_hit_rate": 0.0,
             "batch_hit_rate": 0.0,
+            "mean_fisher_ucb_reward": 0.0,
+            "mean_ucb_score": 0.0,
+            "utility_coverage": 0.0,
         }
 
     def state_dict(self):
@@ -309,6 +472,7 @@ class PersistentSynthState:
             "pair_strategy": self.pair_strategy,
             "crp_alpha": self.crp_alpha,
             "crp_topk": self.crp_topk,
+            "reuse_policy": self.reuse_policy,
             "bank": {
                 int(spk): [emb.detach().cpu() for emb in queue]
                 for spk, queue in self.bank.items()
@@ -328,6 +492,19 @@ class PersistentSynthState:
                 for key, count in self.pair_visits.items()
             ],
             "total_pair_visits": int(self.total_pair_visits),
+            "pair_reward_sum": [
+                (self._serialise_key(key), float(value))
+                for key, value in self.pair_reward_sum.items()
+            ],
+            "pair_reward_updates": [
+                (self._serialise_key(key), int(value))
+                for key, value in self.pair_reward_updates.items()
+            ],
+            "total_reward_updates": int(self.total_reward_updates),
+            "pair_last_p": [
+                (self._serialise_key(key), float(value))
+                for key, value in self.pair_last_p.items()
+            ],
             "activated_cols": [int(c) for c in self.activated_cols],
             "last_stats": dict(self.last_stats),
         }
@@ -344,6 +521,7 @@ class PersistentSynthState:
         self.pair_strategy = state.get("pair_strategy", self.pair_strategy)
         self.crp_alpha = float(state.get("crp_alpha", self.crp_alpha))
         self.crp_topk = int(state.get("crp_topk", self.crp_topk))
+        self.reuse_policy = state.get("reuse_policy", self.reuse_policy)
 
         self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))
         for spk, queue in state.get("bank", {}).items():
@@ -376,8 +554,21 @@ class PersistentSynthState:
             self.pair_visits[self._deserialise_key(key_values)] = int(count)
 
         self.total_pair_visits = int(state.get("total_pair_visits", 0))
+        self.pair_reward_sum = defaultdict(float)
+        for key_values, value in state.get("pair_reward_sum", []):
+            self.pair_reward_sum[self._deserialise_key(key_values)] = float(value)
+        self.pair_reward_updates = defaultdict(int)
+        for key_values, value in state.get("pair_reward_updates", []):
+            self.pair_reward_updates[self._deserialise_key(key_values)] = int(value)
+        self.total_reward_updates = int(
+            state.get("total_reward_updates", sum(self.pair_reward_updates.values()))
+        )
+        self.pair_last_p = {}
+        for key_values, value in state.get("pair_last_p", []):
+            self.pair_last_p[self._deserialise_key(key_values)] = float(value)
         self.activated_cols = set(int(c) for c in state.get("activated_cols", []))
         self.last_stats = dict(state.get("last_stats", self._empty_stats()))
+        self._reset_pending()
         self._rebuild_pairs_by_speaker()
 
     @torch.no_grad()

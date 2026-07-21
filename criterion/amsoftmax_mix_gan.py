@@ -34,7 +34,7 @@ class amsoftmax_gan(nn.Module):
     def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30,
                  persistence=False, slerp_t=0.5, synth_bank_size=10,
                  synth_max_factor=4, pair_strategy="fixed_nn", crp_alpha=1.0,
-                 crp_topk=4, **kwargs):
+                 crp_topk=4, reuse_policy="popularity", **kwargs):
         super(amsoftmax_gan, self).__init__()
         self.m = margin
         self.s = scale
@@ -49,6 +49,7 @@ class amsoftmax_gan(nn.Module):
         self.slerp_t = float(slerp_t)
         self._cached_synth = None
         self._cached_cols = None
+        self._cached_selection = None
         if self.persistence:
             self.max_cols = int(synth_max_factor) * self.num_real
             # persistent learnable synthetic-class prototypes (DDP-synced).
@@ -60,11 +61,14 @@ class amsoftmax_gan(nn.Module):
                                               bank_size=synth_bank_size,
                                               pair_strategy=pair_strategy,
                                               crp_alpha=crp_alpha,
-                                              crp_topk=crp_topk)
+                                              crp_topk=crp_topk,
+                                              reuse_policy=reuse_policy)
             print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f slerp_t=%.2f '
-                  'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f crp_topk=%d'
+                  'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f '
+                  'crp_topk=%d reuse_policy=%s'
                   % (self.m, self.s, self.slerp_t, self.max_cols,
-                     synth_bank_size, pair_strategy, crp_alpha, crp_topk))
+                     synth_bank_size, pair_strategy, crp_alpha, crp_topk,
+                     reuse_policy))
         else:
             print('Initialised AM-Softmax (one-shot SLERP) m=%.3f s=%.3f slerp_t=%.2f'
                   % (self.m, self.s, self.slerp_t))
@@ -88,9 +92,10 @@ class amsoftmax_gan(nn.Module):
             self.synth.load_state_dict(synth_state)
         self._cached_synth = None
         self._cached_cols = None
+        self._cached_selection = None
 
     # ------------------------------------------------------------------ utils
-    def _am_loss(self, x_emb, W_cols, target):
+    def _am_loss(self, x_emb, W_cols, target, return_logits=False):
         """AM-Softmax CE + top-1 acc. x_emb:(N,D) W_cols:(D,K) target:(N,) into K."""
         x_norm = F.normalize(x_emb, dim=1)
         w_norm = F.normalize(W_cols, dim=0)
@@ -99,7 +104,20 @@ class amsoftmax_gan(nn.Module):
         costh_m_s = self.s * (costh - delt)
         loss = self.ce(costh_m_s, target)
         acc = accuracy(costh_m_s.detach(), target.detach(), topk=(1,))[0]
+        if return_logits:
+            return loss, acc, costh_m_s
         return loss, acc
+
+    @staticmethod
+    def _fisher_boundary_utility(logits, target):
+        """Probability and bounded Fisher utility against the best competitor."""
+        target_logit = logits.gather(1, target.view(-1, 1)).squeeze(1)
+        competitors = logits.detach().clone()
+        competitors.scatter_(1, target.view(-1, 1), float("-inf"))
+        strongest_competitor = competitors.max(dim=1).values
+        probability = torch.sigmoid(target_logit.detach() - strongest_competitor)
+        utility = 4.0 * probability * (1.0 - probability)
+        return probability, utility
 
     # -------------------------------------------------------- one-shot (OFF)
     def _gen_oneshot_slerp(self, x, label):
@@ -140,7 +158,7 @@ class amsoftmax_gan(nn.Module):
         return synthetic, y_mix, w_mix[:, :labelid]
 
     # -------------------------------------------------------- persistent (ON)
-    def _gen_persistent(self, x, label, update_state):
+    def _gen_persistent(self, x, label, update_state, selection=None):
         """SLERP of anchor and partner under fixed-NN or CRP pair selection.
 
         Returns synthetic embeddings and persistent W_syn columns. In CRP mode,
@@ -155,16 +173,28 @@ class amsoftmax_gan(nn.Module):
         if update_state:
             state.begin_batch_stats(x.size(0))
 
-        samples, cols = [], []
-        for bi, s in enumerate(labels):
-            key, col, j, event = state.select_pair(s)
+        if selection is None:
+            selection = []
+            for bi, s in enumerate(labels):
+                key, col, j, event = state.select_pair(s)
+                if col is not None:
+                    selection.append((bi, key, col, j, event, None))
+
+        samples, cols, used_selection = [], [], []
+        for bi, key, col, j, event, explicit_partner_idx in selection:
             if col is None:
                 continue
-            e_j, source = state.partner_embedding(j, idx_in_batch, x)
+            if explicit_partner_idx is None:
+                e_j, source = state.partner_embedding(j, idx_in_batch, x)
+            else:
+                e_j, source = x[int(explicit_partner_idx)], "batch"
             if e_j is None:
                 continue
             samples.append(slerp(x[bi], e_j, self.slerp_t))
             cols.append(int(col))
+            used_selection.append(
+                (bi, key, int(col), j, event, explicit_partner_idx)
+            )
             if update_state:
                 state.commit_visit(key, col, event, source)
 
@@ -180,17 +210,26 @@ class amsoftmax_gan(nn.Module):
             partner = x[1] if B > 1 else x[0]
             samples.append(slerp(x[0], partner, self.slerp_t))
             cols.append(int(col0))
+            used_selection.append(
+                (0, key, int(col0), None, event, 1 if B > 1 else 0)
+            )
             if update_state:
                 source = "batch" if B > 1 else "self"
                 state.commit_visit(key, col0, event, source)
 
         if update_state:
             state.update_bank(x.detach(), label)
-            state.finalize_batch_stats()
-        return torch.stack(samples, 0), cols
+        return torch.stack(samples, 0), cols, used_selection
+
+    def synchronize_synth_state(self, device):
+        """Commit this batch's CRP/Fisher statistics consistently across DDP."""
+        if not self.persistence:
+            return {}
+        return self.synth.synchronize_pending(device)
 
     # ------------------------------------------------------------- forward
-    def forward(self, x, label=None, flagSyn=False, update_state=False):
+    def forward(self, x, label=None, flagSyn=False, update_state=False,
+                cache_selection=False, reuse_selection=False):
         assert x.size()[0] == label.size()[0]
         assert x.size()[1] == self.in_feats
 
@@ -198,7 +237,14 @@ class amsoftmax_gan(nn.Module):
             if flagSyn and self._cached_synth is not None:
                 synthetic, cols = self._cached_synth, self._cached_cols
             else:
-                synthetic, cols = self._gen_persistent(x, label, update_state)
+                selection = self._cached_selection if reuse_selection else None
+                synthetic, cols, used_selection = self._gen_persistent(
+                    x, label, update_state, selection=selection
+                )
+                if cache_selection:
+                    self._cached_selection = used_selection
+                if reuse_selection:
+                    self._cached_selection = None
                 if update_state:
                     # Reuse the exact same stochastic CRP samples for L_syn and
                     # adversarial-G in this training step.
@@ -226,7 +272,14 @@ class amsoftmax_gan(nn.Module):
             W_cols = torch.cat([self.W, self.W_syn[:, active]], dim=1)
             target = torch.tensor([self.num_real + pos[c] for c in cols],
                                   device=x.device, dtype=torch.int64)
-            loss, acc = self._am_loss(synthetic, W_cols, target)
+            loss, acc, logits = self._am_loss(
+                synthetic, W_cols, target, return_logits=True
+            )
+            if self.synth.reuse_policy == "fisher_ucb":
+                probabilities, utilities = self._fisher_boundary_utility(
+                    logits, target
+                )
+                self.synth.record_utilities(cols, probabilities, utilities)
             # touch all of W_syn so every rank marks it 'used' every step (DDP).
             loss = loss + 0.0 * self.W_syn.sum()
             self._cached_synth = None

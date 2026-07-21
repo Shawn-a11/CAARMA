@@ -115,7 +115,9 @@ class Task(LightningModule):
             with torch.no_grad():
                 feature_d = self.features(waveform)
                 embedding_d = self.model(feature_d)
-                _, _, synth_for_d = self.loss(embedding_d, label)
+                _, _, synth_for_d = self.loss(
+                    embedding_d, label, cache_selection=True
+                )
         finally:
             if model_was_training:
                 self.model.train()
@@ -153,8 +155,15 @@ class Task(LightningModule):
         opt_main.zero_grad()
         # update_state=True only here (the single L_real M-step call): the memory
         # bank and per-epoch activated-column set are advanced exactly once/step.
-        amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label, update_state=True)
+        amsoftmax_loss, acc, synthetic_embeddings = self.loss(
+            embedding, label, update_state=True, reuse_selection=True
+        )
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
+        if getattr(self.loss, 'persistence', False):
+            # Pair columns are deterministic; all-reduce the visit and bounded
+            # reward deltas so every DDP rank starts the next selection from the
+            # same CRP/UCB registry.
+            self.loss.synchronize_synth_state(embedding.device)
 
         # Paper Eq.(2): L_G = BCE(D(e_syn),1) + BCE(D(e),0)  — no pretrain phase
         # synthetic (fake) is FIRST here and in persistent mode may have Ns <= B
@@ -207,6 +216,9 @@ class Task(LightningModule):
             self.log('Ns_over_B', stats['Ns_over_B'], prog_bar=False, sync_dist=False)
             self.log('bank_hit_rate', stats['bank_hit_rate'], prog_bar=False, sync_dist=False)
             self.log('batch_hit_rate', stats['batch_hit_rate'], prog_bar=False, sync_dist=False)
+            self.log('mean_fisher_ucb_reward', stats['mean_fisher_ucb_reward'], prog_bar=False, sync_dist=False)
+            self.log('mean_ucb_score', stats['mean_ucb_score'], prog_bar=False, sync_dist=False)
+            self.log('utility_coverage', stats['utility_coverage'], prog_bar=False, sync_dist=False)
 
 
             
@@ -394,9 +406,33 @@ def cli_main():
             config = yaml.safe_load(file)
         return config
 
-    config = load_config("/root/autodl-tmp/CAARMA/config.yaml")
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--config",
+        default="/root/autodl-tmp/CAARMA/config.yaml",
+        help="YAML experiment configuration",
+    )
+    parser.add_argument(
+        "--reuse-policy",
+        choices=("popularity", "fisher_ucb"),
+        default=None,
+        help="Optional matched-ablation override for persistent class reuse",
+    )
+    parser.add_argument(
+        "--save-dir",
+        default=None,
+        help="Optional checkpoint directory override",
+    )
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+    if args.reuse_policy is not None:
+        config["reuse_policy"] = args.reuse_policy
+    if args.save_dir is not None:
+        config["save_dir"] = args.save_dir
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Device: ", device)
+    print("reuse_policy: {}".format(config.get("reuse_policy", "popularity")))
     
     dataloader = super_dataset(config)
 
