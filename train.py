@@ -60,6 +60,12 @@ class Task(LightningModule):
             self.discriminator = ProjectionDiscriminator_spectral(config['embedding_dim']).train()
         else:
             self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
+        self.prototype_match_loss = bool(config.get('prototype_match_loss', False))
+        if self.prototype_match_loss and not isinstance(
+                self.discriminator, ProjectionDiscriminator_spectral):
+            raise ValueError(
+                "prototype_match_loss requires discriminator_type='projection'"
+            )
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
 
         # HuBERT/WavLM discriminators need their frozen SSL backbone excluded
@@ -105,6 +111,44 @@ class Task(LightningModule):
         if self._disc_requires_condition():
             return self.discriminator(embeddings, conditions)
         return self.discriminator(embeddings)
+
+    def _prototype_ids(self, label, synth_cols, device):
+        real_ids = label.to(device=device, dtype=torch.long)
+        synth_ids = torch.tensor(
+            synth_cols, device=device, dtype=torch.long
+        ) + int(self.loss.num_real)
+        return torch.cat([real_ids, synth_ids], dim=0)
+
+    def _prototype_matching_loss(self, embeddings, conditions, prototype_ids):
+        """Rank the assigned prototype above the hardest wrong in-batch one."""
+        if not self.prototype_match_loss:
+            zero = embeddings.sum() * 0.0
+            return zero, zero.detach()
+
+        pairwise = self.discriminator.pairwise_compatibility(
+            embeddings, conditions
+        )
+        with torch.no_grad():
+            same_class = prototype_ids.view(-1, 1).eq(
+                prototype_ids.view(1, -1)
+            )
+            candidate_scores = pairwise.detach().masked_fill(
+                same_class, torch.finfo(pairwise.dtype).min
+            )
+            valid = (~same_class).any(dim=1)
+            negative_index = candidate_scores.argmax(dim=1)
+
+        if not bool(valid.any()):
+            zero = embeddings.sum() * 0.0
+            return zero, zero.detach()
+
+        row_index = torch.arange(
+            pairwise.size(0), device=pairwise.device
+        )
+        positive_logits = pairwise.diagonal()[valid]
+        negative_logits = pairwise[row_index, negative_index][valid]
+        gap = positive_logits - negative_logits
+        return F.softplus(-gap).mean(), gap.detach().mean()
 
     def forward(self, x):
         feature = self.features(x)
@@ -176,8 +220,19 @@ class Task(LightningModule):
         # when synth_for_d has Ns != B rows (persistent mode skips some samples).
         real_preds, fake_preds_d = preds_d_all[:B], preds_d_all[B:]
         # Paper Eq.(1): L_D = BCE(D(e),1) + BCE(D(e_syn),0)
-        d_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
-                  self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
+        d_adv_loss = (self.BCE_loss(real_preds, torch.ones_like(real_preds)) +
+                      self.BCE_loss(fake_preds_d, torch.zeros_like(fake_preds_d)))
+        if self.prototype_match_loss:
+            prototype_ids_d = self._prototype_ids(
+                label, synth_cols_d, combined_d.device
+            )
+            d_match_loss, d_match_gap = self._prototype_matching_loss(
+                combined_d, cond_d, prototype_ids_d
+            )
+        else:
+            d_match_loss = combined_d.sum() * 0.0
+            d_match_gap = d_match_loss.detach()
+        d_loss = d_adv_loss + d_match_loss
         self.manual_backward(d_loss)
         opt_d.step()
         self.untoggle_optimizer(opt_d)
@@ -229,8 +284,27 @@ class Task(LightningModule):
             cond_g = None
         preds_g_all = self._disc_forward(combined_g, cond_g)
         fake_preds_g, real_preds_g = preds_g_all[:Ns], preds_g_all[Ns:]
-        g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
-                  self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
+        g_adv_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
+                      self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
+        if self.prototype_match_loss:
+            prototype_ids_g = torch.cat(
+                [
+                    torch.tensor(
+                        synth_cols_g,
+                        device=combined_g.device,
+                        dtype=torch.long,
+                    ) + int(self.loss.num_real),
+                    label.to(device=combined_g.device, dtype=torch.long),
+                ],
+                dim=0,
+            )
+            g_match_loss, g_match_gap = self._prototype_matching_loss(
+                combined_g, cond_g, prototype_ids_g
+            )
+        else:
+            g_match_loss = combined_g.sum() * 0.0
+            g_match_gap = g_match_loss.detach()
+        g_loss = g_adv_loss + g_match_loss
 
         # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
         self.adjust_lambda_adv(amsoftmax_loss, g_loss)
@@ -255,8 +329,14 @@ class Task(LightningModule):
         self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True, sync_dist=False)
         self.log('acc', acc, prog_bar=True, sync_dist=False)
         self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
+        self.log('g_adv_loss', g_adv_loss, prog_bar=False, sync_dist=False)
+        self.log('g_match_loss', g_match_loss, prog_bar=True, sync_dist=False)
+        self.log('g_match_gap', g_match_gap, prog_bar=False, sync_dist=False)
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
+        self.log('d_adv_loss', d_adv_loss, prog_bar=False, sync_dist=False)
+        self.log('d_match_loss', d_match_loss, prog_bar=True, sync_dist=False)
+        self.log('d_match_gap', d_match_gap, prog_bar=False, sync_dist=False)
         self.log('lambda_adv', self.lambda_adv, prog_bar=False, sync_dist=False)
         if getattr(self.loss, 'persistence', False):
             stats = self.loss.synth.last_stats

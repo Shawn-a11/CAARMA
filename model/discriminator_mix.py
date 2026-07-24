@@ -245,11 +245,32 @@ class ProjectionDiscriminator_spectral(nn.Module):
             f"({embedding_dim}->{hidden_dim}->1, {n_params:,} trainable params)"
         )
 
+    def _embed_features(self, x):
+        return self.activation(self.embed(x))
+
+    def _condition_features(self, condition):
+        return self.cond(F.normalize(condition, dim=1))
+
+    def pairwise_compatibility(self, x, condition_bank):
+        """Return every embedding-prototype compatibility score."""
+        h = self._embed_features(x)
+        q = self._condition_features(condition_bank)
+        return torch.mm(h, q.t()) / self.scale
+
+    def matching_logits(self, x, positive_condition, negative_condition):
+        """Score assigned and mismatched prototypes with one embedding pass."""
+        h = self._embed_features(x)
+        q_pos = self._condition_features(positive_condition)
+        q_neg = self._condition_features(negative_condition)
+        pos = (h * q_pos).sum(dim=1) / self.scale
+        neg = (h * q_neg).sum(dim=1) / self.scale
+        return pos, neg
+
     def forward(self, x, condition):
         if condition is None:
             raise ValueError("ProjectionDiscriminator_spectral requires a condition tensor")
-        h = self.activation(self.embed(x))
-        q = self.cond(F.normalize(condition, dim=1))
+        h = self._embed_features(x)
+        q = self._condition_features(condition)
         projection = (h * q).sum(dim=1, keepdim=True) / self.scale
         return self.head(h) + projection
 

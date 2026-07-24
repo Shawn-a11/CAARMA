@@ -57,7 +57,7 @@ mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
 resume_from_checkpoint: "None"  # full Lightning resume: optimizer/scheduler/epoch/global_step + synth table
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_projection_mlpd_crp_persistent_synth_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_explicit_match_projection_crp_persistent_synth_ddp"
 title: "caarma_mfa"
 
 # ── Persistent synthetic classes ──────────────────────────────────────────
@@ -72,3 +72,4 @@ pair_strategy: "crp"         # "fixed_nn" = v1; "crp" = v2 create-vs-reuse sampl
 crp_alpha: 1.0               # larger -> create new synthetic pairs more often
 crp_topk: 4                  # new pairs are sampled from each anchor's top-k NN speakers
 discriminator_type: "projection" # "projection" = class-conditioned MLP-D; "spectral" = v2 simple D
+prototype_match_loss: True       # assigned q must outrank the hardest wrong in-batch q
