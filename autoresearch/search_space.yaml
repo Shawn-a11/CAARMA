@@ -1,0 +1,32 @@
+version: 1
+
+# These values define the 3.61 joint-Lsyn MLP-D method and are immutable.
+frozen_config:
+  model: "MFA-CONFORMER"
+  features: "Fbank"
+  do_augmentation: false
+  criterion: "AMSoftmaxGAN"
+  batch_size: 50
+  num_spk: 1211
+  mixup: true
+  embedding_dim: 192
+
+# Staged values are deliberately small. Tune one stage at a time and promote
+# only promising configurations to a longer budget.
+stages:
+  optimization:
+    init_lr: [0.0005, 0.001, 0.002]
+    discriminator_lr: [0.0001, 0.0002, 0.0004]
+    weight_decay: [0.00000001, 0.0000001, 0.000001]
+    warmup_step: [1000, 2000, 4000]
+
+  schedule:
+    lr_scheduler_step_size: [3, 4, 6]
+    lr_scheduler_gamma: [0.5, 0.7, 0.9]
+
+  objective:
+    lambda_adv_mode: ["source_dynamic", "fixed"]
+    lambda_adv_fixed: [0.01, 0.05, 0.1, 0.25]
+    am_margin: [0.15, 0.2, 0.25]
+    am_scale: [20.0, 30.0, 40.0]
+    joint_lsyn_scale: [0.25, 0.5, 1.0, 2.0, 4.0]

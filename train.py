@@ -47,7 +47,10 @@ class Task(LightningModule):
         self.config = config
         self.automatic_optimization = False
         
-        self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
+        self.discriminator = MixupDiscriminator(
+            cache_dir="./cache_dir/",
+            emb_dim=int(config['embedding_dim']),
+        ).train()
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
 
         # HuBERT/WavLM discriminators need their frozen SSL backbone excluded
@@ -60,8 +63,29 @@ class Task(LightningModule):
                 hubert_ignore.append(f"discriminator.hubert.{name}")
             self._ddp_params_and_buffers_to_ignore = hubert_ignore
 
-        # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
-        self.lambda_adv = 0.25
+        self.lambda_adv_mode = str(config.get('lambda_adv_mode', 'source_dynamic'))
+        if self.lambda_adv_mode not in {'source_dynamic', 'fixed'}:
+            raise ValueError(
+                "lambda_adv_mode must be 'source_dynamic' or 'fixed', got "
+                f"{self.lambda_adv_mode!r}"
+            )
+        self.lambda_adv_initial = float(config.get('lambda_adv_initial', 0.25))
+        self.lambda_adv_fixed = float(config.get('lambda_adv_fixed', 0.01))
+        self.lambda_adv_reset_each_step = bool(
+            config.get('lambda_adv_reset_each_step', True)
+        )
+        self.lambda_adv_ratio_low = float(config.get('lambda_adv_ratio_low', 0.5))
+        self.lambda_adv_ratio_high = float(config.get('lambda_adv_ratio_high', 1.5))
+        self.lambda_adv_floor = float(config.get('lambda_adv_floor', 0.0001))
+        self.lambda_adv_cap = float(config.get('lambda_adv_cap', 0.01))
+        self.lambda_adv_up_factor = float(config.get('lambda_adv_up_factor', 1.1))
+        self.lambda_adv_down_factor = float(config.get('lambda_adv_down_factor', 0.9))
+        self.joint_lsyn_scale = float(config.get('joint_lsyn_scale', 1.0))
+        self.lambda_adv = (
+            self.lambda_adv_fixed
+            if self.lambda_adv_mode == 'fixed'
+            else self.lambda_adv_initial
+        )
 
     def set_discriminator_grad(self, requires_grad):
         for param in self.discriminator.parameters():
@@ -76,16 +100,25 @@ class Task(LightningModule):
         embedding = self.model(feature)
         return embedding
     def adjust_lambda_adv(self, am_loss, g_loss):
+        if self.lambda_adv_mode == 'fixed':
+            self.lambda_adv = self.lambda_adv_fixed
+            return
         # Source-faithful control law (massabaali7/CAARMA adjust_weight):
         # cap=0.01, floor=0.0001. Earlier this branch carried cap=0.5 — a
         # regression introduced by commit f18cf61, NOT the GitHub source value.
         # Combined with the per-batch reset to 0.25 (in the M step) the
         # effective trajectory is the discrete {0.01, 0.225, 0.25} set.
         loss_ratio = am_loss.detach() / (g_loss.detach() + 1e-8)
-        if loss_ratio > 1.5:
-            self.lambda_adv = min(self.lambda_adv * 1.1, 0.01)
-        elif loss_ratio < 0.5:
-            self.lambda_adv = max(self.lambda_adv * 0.9, 0.0001)
+        if loss_ratio > self.lambda_adv_ratio_high:
+            self.lambda_adv = min(
+                self.lambda_adv * self.lambda_adv_up_factor,
+                self.lambda_adv_cap,
+            )
+        elif loss_ratio < self.lambda_adv_ratio_low:
+            self.lambda_adv = max(
+                self.lambda_adv * self.lambda_adv_down_factor,
+                self.lambda_adv_floor,
+            )
     
     def training_step(self, batch, batch_idx):
         opt_main, opt_d = self.optimizers()
@@ -129,10 +162,13 @@ class Task(LightningModule):
         self.toggle_optimizer(opt_main)
         self.set_discriminator_grad(False)
 
-        # Source-faithful: reset λ_adv to 0.25 at the start of every G step, so
+        # Source-faithful: reset lambda_adv to 0.25 at every G step, so
         # adjust_lambda_adv becomes a one-shot per-batch decision rather than a
         # multiplicative drift that compounds and sticks at the floor.
-        self.lambda_adv = 0.25
+        if self.lambda_adv_mode == 'fixed':
+            self.lambda_adv = self.lambda_adv_fixed
+        elif self.lambda_adv_reset_each_step:
+            self.lambda_adv = self.lambda_adv_initial
 
         feature = self.features(waveform)
         embedding = self.model(feature)
@@ -152,9 +188,10 @@ class Task(LightningModule):
         # Paper Algorithm 2: "Adjust λ_adv based on L_real/L_G"
         self.adjust_lambda_adv(amsoftmax_loss, g_loss)
 
-        # Paper: L_total = L_real + (1/N)*L_syn + λ_adv * L_G
+        # Baseline: L_total = L_real + (scale/N)*L_syn + lambda_adv*L_G.
         total_loss = (amsoftmax_loss
-                      + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
+                      + (self.joint_lsyn_scale / self.config['num_spk'])
+                      * amsoftmax_syn_loss
                       + self.lambda_adv * g_loss)
 
         self.manual_backward(total_loss)
@@ -192,14 +229,23 @@ class Task(LightningModule):
         # Lower learning rate for discriminator
         discriminator_optimizer = AdamW(
             self.discriminator.parameters(),
-            lr= 2e-4, # Significantly reduced 2e-4
-            #self.learning_rate * 0.01,  
+            lr=float(self.config.get('discriminator_lr', 2e-4)),
             weight_decay=self.weight_decay,
             betas=(0.5, 0.999)
         )
         
-        embedding_scheduler = StepLR(embedding_optimizer, step_size = 4, gamma=0.5)
-        discriminator_scheduler = StepLR(discriminator_optimizer, step_size = 4, gamma=0.5)
+        scheduler_step_size = int(self.config.get('lr_scheduler_step_size', 4))
+        scheduler_gamma = float(self.config.get('lr_scheduler_gamma', 0.5))
+        embedding_scheduler = StepLR(
+            embedding_optimizer,
+            step_size=scheduler_step_size,
+            gamma=scheduler_gamma,
+        )
+        discriminator_scheduler = StepLR(
+            discriminator_optimizer,
+            step_size=scheduler_step_size,
+            gamma=scheduler_gamma,
+        )
 
         return [embedding_optimizer, discriminator_optimizer], \
             [embedding_scheduler, discriminator_scheduler]
@@ -362,7 +408,15 @@ def cli_main():
             config = yaml.safe_load(file)
         return config
 
-    config = load_config("/root/autodl-tmp/CAARMA/config.yaml")
+    parser = ArgumentParser()
+    parser.add_argument(
+        '--config',
+        default='/root/autodl-tmp/CAARMA/config.yaml',
+        help='Path to the YAML experiment configuration.',
+    )
+    args = parser.parse_args()
+    config = load_config(args.config)
+    seed_everything(int(config.get('seed', 42)), workers=True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Device: ", device)
     
@@ -466,7 +520,14 @@ def cli_main():
 
     #     trainer.fit(final_project, datamodule=dataloader)
     
-    trainer.fit(final_project, datamodule=dataloader)
+    resume_path = config.get('resume_from_checkpoint', 'None')
+    if resume_path in (None, '', 'None'):
+        resume_path = None
+    trainer.fit(
+        final_project,
+        datamodule=dataloader,
+        ckpt_path=resume_path,
+    )
 
     #print("\n--- Running Immediate Validation ---")
     #trainer.validate(final_project, datamodule=dataloader, ckpt_path=config['checkpoint_path'])

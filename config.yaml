@@ -56,5 +56,32 @@ num_spk: 1211
 mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
+resume_from_checkpoint: "None"
 save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_joint_lsyn_ddp"
 title: "caarma_mfa"
+
+# Reproducible trial seed used by Lightning, torch, NumPy, Python, and workers.
+seed: 42
+
+# Explicit defaults for values that were hard-coded in the 3.61 baseline.
+am_margin: 0.2
+am_scale: 30.0
+discriminator_lr: 0.0002
+lr_scheduler_step_size: 4
+lr_scheduler_gamma: 0.5
+
+# L_total = L_real + joint_lsyn_scale / num_spk * L_syn + lambda_adv * L_G.
+joint_lsyn_scale: 1.0
+
+# "source_dynamic" preserves the parent branch's per-step controller.
+# "fixed" uses lambda_adv_fixed without ratio-based adjustment.
+lambda_adv_mode: "source_dynamic"
+lambda_adv_initial: 0.25
+lambda_adv_fixed: 0.01
+lambda_adv_reset_each_step: True
+lambda_adv_ratio_low: 0.5
+lambda_adv_ratio_high: 1.5
+lambda_adv_floor: 0.0001
+lambda_adv_cap: 0.01
+lambda_adv_up_factor: 1.1
+lambda_adv_down_factor: 0.9
