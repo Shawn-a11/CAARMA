@@ -179,6 +179,70 @@ def audit_state(state: Mapping) -> dict[str, Any]:
     }
 
 
+def snapshot_live_state(synth: Any, epoch: int | None = None,
+                        global_step: int | None = None) -> dict[str, Any]:
+    """Occupancy metrics from a live ``PersistentSynthState`` (no checkpoint IO).
+
+    Intended for end-of-epoch logging inside training. Reads only Python-side
+    registry structures; the per-speaker embedding bank is never touched.
+    """
+    state = {
+        "pair_strategy": getattr(synth, "pair_strategy", None),
+        "crp_alpha": getattr(synth, "crp_alpha", None),
+        "crp_topk": getattr(synth, "crp_topk", None),
+        "max_cols": synth.max_cols,
+        "pair_col": synth.pair_col,
+        "created_pairs": synth.created_pairs,
+        "pair_visits": synth.pair_visits,
+    }
+    row = audit_state(state)
+    row.update(
+        {
+            "epoch_zero_based": int(epoch) if epoch is not None else None,
+            "display_epoch_one_based": int(epoch) + 1 if epoch is not None else None,
+            "global_step": int(global_step) if global_step is not None else None,
+            # per-epoch activation (reset by rebuild_pairing at each epoch start)
+            "active_synth_cols_epoch": len(getattr(synth, "activated_cols", ())),
+        }
+    )
+    return row
+
+
+def append_epoch_log(path: Path, row: Mapping[str, Any]) -> None:
+    """Append one JSON line to the per-epoch occupancy timeline."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(dict(row), ensure_ascii=True) + "\n")
+
+
+def read_epoch_log(path: Path) -> list[dict[str, Any]]:
+    """Read a JSONL occupancy timeline, ordered by epoch then file order."""
+    rows: list[dict[str, Any]] = []
+    for index, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Malformed epoch-log line {index + 1}: {error}") from error
+    rows.sort(
+        key=lambda row: (
+            row["epoch_zero_based"] if row.get("epoch_zero_based") is not None else 10**9,
+            row.get("global_step") or 0,
+        )
+    )
+    return rows
+
+
+def first_saturated_row(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    for row in rows:
+        if row.get("registry_capacity_reached"):
+            return row
+    return None
+
+
 def audit_checkpoint(path: Path) -> dict[str, Any]:
     checkpoint = _load_checkpoint(path)
     matches = _find_synth_states(checkpoint)
@@ -295,7 +359,7 @@ def print_report(report: Mapping[str, Any]) -> None:
 
 
 def _build_payload(args: argparse.Namespace) -> dict[str, Any]:
-    payload: dict[str, Any] = {"reports": [], "errors": []}
+    payload: dict[str, Any] = {"reports": [], "errors": [], "epoch_rows": []}
     if args.checkpoint:
         try:
             payload["reports"].append(audit_checkpoint(args.checkpoint))
@@ -305,41 +369,92 @@ def _build_payload(args: argparse.Namespace) -> dict[str, Any]:
         reports, errors = audit_directory(args.checkpoint_dir)
         payload["reports"].extend(reports)
         payload["errors"].extend(errors)
+    if getattr(args, "epoch_log", None):
+        try:
+            payload["epoch_rows"] = read_epoch_log(args.epoch_log)
+        except (OSError, ValueError) as error:
+            payload["errors"].append({"checkpoint": str(args.epoch_log), "error": str(error)})
 
     saturated = [
         report for report in payload["reports"] if report["registry_capacity_reached"]
     ]
+    exact = first_saturated_row(payload["epoch_rows"])
     payload["timeline"] = {
         "checkpoints_scanned": len(payload["reports"]),
         "first_observed_saturation": saturated[0] if saturated else None,
+        "epochs_logged": len(payload["epoch_rows"]),
+        "exact_saturation_epoch_one_based": (
+            exact.get("display_epoch_one_based") if exact else None
+        ),
         "interpretation": (
-            "This is the first saved checkpoint observed at capacity, not necessarily the exact "
-            "training epoch when capacity was first reached. Exact recovery requires a checkpoint "
-            "or allocated-pair log for every epoch."
+            "Checkpoint scanning reports the first saved checkpoint observed at capacity, not "
+            "necessarily the exact training epoch when capacity was first reached. The exact "
+            "epoch is available only from the per-epoch occupancy log "
+            "(crp_occupancy_timeline.jsonl) written during training."
         ),
     }
     return payload
+
+
+_EPOCH_TABLE_COLUMNS = (
+    ("display_epoch_one_based", "epoch", "{}"),
+    ("allocated_pairs", "allocated", "{}"),
+    ("occupied_classes", "occupied", "{}"),
+    ("active_synth_cols_epoch", "active", "{}"),
+    ("singleton_ratio", "singleton", "{:.3f}"),
+    ("gini_coefficient", "gini", "{:.3f}"),
+    ("effective_class_ratio", "eff_ratio", "{:.3f}"),
+    ("top_10pct_visit_share", "top10%", "{:.3f}"),
+)
+
+
+def print_epoch_rows(rows: Sequence[Mapping[str, Any]]) -> None:
+    print("Per-epoch occupancy timeline")
+    header = "  ".join(f"{title:>9}" for _, title, _ in _EPOCH_TABLE_COLUMNS)
+    print(header)
+    for row in rows:
+        cells = []
+        for key, _, fmt in _EPOCH_TABLE_COLUMNS:
+            value = row.get(key)
+            cells.append(f"{'N/A' if value is None else fmt.format(value):>9}")
+        marker = "  <- saturated" if row.get("registry_capacity_reached") else ""
+        print("  ".join(cells) + marker)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Read-only audit of CRP synthetic-class occupancy in CAARMA checkpoints."
     )
-    source = parser.add_mutually_exclusive_group(required=True)
+    source = parser.add_mutually_exclusive_group(required=False)
     source.add_argument("--checkpoint", type=Path, help="A Lightning .ckpt file.")
     source.add_argument(
         "--checkpoint-dir",
         type=Path,
         help="Directory recursively scanned for .ckpt files.",
     )
+    parser.add_argument(
+        "--epoch-log",
+        type=Path,
+        help=(
+            "Per-epoch crp_occupancy_timeline.jsonl written during training; "
+            "may be combined with a checkpoint source."
+        ),
+    )
     parser.add_argument("--json-output", type=Path, help="Optional JSON report path.")
     args = parser.parse_args()
+    if not (args.checkpoint or args.checkpoint_dir or args.epoch_log):
+        parser.error("one of --checkpoint, --checkpoint-dir or --epoch-log is required")
 
     payload = _build_payload(args)
     for index, report in enumerate(payload["reports"]):
         if index:
             print("\n" + "-" * 80)
         print_report(report)
+
+    if payload["epoch_rows"]:
+        if payload["reports"]:
+            print("\n" + "-" * 80)
+        print_epoch_rows(payload["epoch_rows"])
 
     timeline = payload["timeline"]
     print("\nTimeline")
@@ -353,6 +468,12 @@ def main() -> int:
         )
     else:
         print("First observed registry saturation: not observed in the supplied checkpoints")
+    if payload["epoch_rows"]:
+        exact = timeline["exact_saturation_epoch_one_based"]
+        if exact is not None:
+            print(f"Exact registry saturation (epoch log): display epoch {exact}")
+        else:
+            print("Exact registry saturation (epoch log): not reached in logged epochs")
     print(f"Note: {timeline['interpretation']}")
 
     for error in payload["errors"]:
@@ -366,7 +487,7 @@ def main() -> int:
         )
         print(f"\nJSON report written to: {args.json_output}")
 
-    return 0 if payload["reports"] else 2
+    return 0 if (payload["reports"] or payload["epoch_rows"]) else 2
 
 
 if __name__ == "__main__":

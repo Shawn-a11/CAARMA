@@ -25,8 +25,25 @@ python tools/audit_crp_occupancy.py \
 The directory mode scans every saved checkpoint and reports the first checkpoint
 observed with `len(pair_col) >= max_cols`. If only the best three checkpoints and
 `last.ckpt` were retained, this is only the first *observed* saturation point.
-The exact saturation epoch cannot be reconstructed without an epoch-by-epoch
-checkpoint or an epoch-by-epoch `allocated_pairs` log.
+For runs recorded before per-epoch logging existed, the exact saturation epoch
+cannot be reconstructed without an epoch-by-epoch checkpoint.
+
+## Per-epoch timeline log (exact saturation epoch)
+
+Training now appends one JSON line per epoch to
+`<save_dir>/crp_occupancy_timeline.jsonl` (rank 0, persistent mode only).
+Each line holds the full occupancy metric set plus `display_epoch_one_based`,
+`global_step`, and the per-epoch `active_synth_cols_epoch` count. Audit it with:
+
+```bash
+python tools/audit_crp_occupancy.py \
+  --epoch-log /path/to/save_dir/crp_occupancy_timeline.jsonl
+```
+
+This prints a per-epoch table and the exact first saturated epoch. The flag can
+be combined with `--checkpoint` / `--checkpoint-dir` in one report. Logging is
+read-only with respect to training state and consumes no RNG, so runs with and
+without it are numerically identical.
 
 ## Interpretation
 
