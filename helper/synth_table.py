@@ -23,6 +23,13 @@ CRP / stick-breaking create-vs-reuse control is the v2 axis: instead of always
 using one fixed nearest-neighbour pair per anchor speaker, the state can choose
 between reusing an already introduced synthetic pair and creating a new pair
 from the anchor's top-k neighbours.
+
+Natural-Cluster CRP (candidate_pool="cluster") replaces the GLOBAL top-k
+candidate pool with the anchor's natural cluster: real prototypes are grouped
+by deterministic spherical k-means at each epoch start, and new pairs are
+sampled from the anchor's top-k neighbours WITHIN its own cluster. The
+per-anchor branching factor (crp_topk) and the CRP create-vs-reuse law are
+unchanged - only which pairs are eligible changes.
 """
 
 from collections import defaultdict, deque
@@ -64,13 +71,25 @@ class PersistentSynthState:
     """
 
     def __init__(self, num_real, max_cols, bank_size=10, pair_strategy="fixed_nn",
-                 crp_alpha=1.0, crp_topk=4):
+                 crp_alpha=1.0, crp_topk=4, candidate_pool="topk", cluster_size=8):
         self.num_real = int(num_real)
         self.max_cols = int(max_cols)
         self.bank_size = int(bank_size)
         self.pair_strategy = pair_strategy
         self.crp_alpha = float(crp_alpha)
         self.crp_topk = int(crp_topk)
+        self.candidate_pool = str(candidate_pool)
+        self.cluster_size = int(cluster_size)
+        if self.candidate_pool not in ("topk", "cluster"):
+            raise ValueError(f"Unknown candidate_pool: {self.candidate_pool!r}")
+        if self.candidate_pool == "cluster" and self.pair_strategy != "crp":
+            raise ValueError(
+                "candidate_pool='cluster' requires pair_strategy='crp' "
+                "(the cluster pool only defines CRP creation candidates)."
+            )
+        if self.candidate_pool == "cluster" and self.cluster_size < 2:
+            raise ValueError("cluster_size must be >= 2 for candidate_pool='cluster'")
+        self.cluster_assign = []      # epoch clustering (cluster mode only)
         self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))  # spk -> recent detached emb (D,)
         self.pair_col = {}            # frozenset({s,j}) -> col (PERSISTENT, never reassigned)
         self.spk_partner = {}         # s -> NN(s) for the current epoch
@@ -81,6 +100,73 @@ class PersistentSynthState:
         self.activated_cols = set()   # columns used this epoch (reset each epoch)
         self.last_stats = self._empty_stats()
 
+    @staticmethod
+    @torch.no_grad()
+    def _spherical_kmeans(points, num_clusters, iters=20, seed=0):
+        """Deterministic cosine k-means over unit vectors. points: (C, D).
+
+        Returns a per-point cluster id list. Runs on CPU in float32 with a
+        fixed-seed generator, so every DDP rank derives the identical
+        clustering from the identical epoch-synced prototypes.
+        """
+        points = F.normalize(points.detach().to(dtype=torch.float32, device="cpu"), dim=1)
+        C = points.size(0)
+        k = max(1, min(int(num_clusters), C))
+        generator = torch.Generator().manual_seed(int(seed))
+
+        # k-means++ style seeding on cosine distance.
+        first = int(torch.randint(C, (1,), generator=generator))
+        centers = [points[first]]
+        for _ in range(1, k):
+            sim = torch.stack([points @ c for c in centers], dim=1).max(dim=1).values
+            dist = (1.0 - sim).clamp(min=0.0)
+            total = float(dist.sum())
+            probs = dist / total if total > 0 else torch.full((C,), 1.0 / C)
+            centers.append(points[int(torch.multinomial(probs, 1, generator=generator))])
+        centers = torch.stack(centers, dim=0)
+
+        assign = None
+        for _ in range(max(1, int(iters))):
+            sim = points @ F.normalize(centers, dim=1).t()          # (C, k)
+            new_assign = sim.argmax(dim=1)
+            if assign is not None and torch.equal(new_assign, assign):
+                break
+            assign = new_assign
+            for ci in range(k):
+                members = points[assign == ci]
+                if members.size(0) == 0:
+                    # deterministic empty-cluster fix: adopt the point worst
+                    # served by the current centers.
+                    worst = (points @ F.normalize(centers, dim=1).t()).max(dim=1).values.argmin()
+                    centers[ci] = points[int(worst)]
+                else:
+                    centers[ci] = members.mean(dim=0)
+        return [int(c) for c in assign.tolist()]
+
+    def _cluster_candidates(self, Wt, cos):
+        """Per-anchor candidate partners: top-k nearest WITHIN the anchor's cluster.
+
+        Wt: (C, D) unit prototype rows. Falls back to the global top-1 neighbour
+        for singleton clusters so every anchor keeps at least one candidate
+        (matching the topk-pool guarantee).
+        """
+        num_clusters = max(1, round(self.num_real / self.cluster_size))
+        self.cluster_assign = self._spherical_kmeans(Wt, num_clusters)
+        members = defaultdict(list)
+        for s, c in enumerate(self.cluster_assign):
+            members[c].append(s)
+
+        k = max(1, min(self.crp_topk, self.num_real - 1))
+        candidates = {}
+        for s in range(self.num_real):
+            mates = [j for j in members[self.cluster_assign[s]] if j != s]
+            if mates:
+                mates.sort(key=lambda j: float(cos[s][j]), reverse=True)
+                candidates[s] = mates[:k]
+            else:
+                candidates[s] = [self.spk_partner[s]]
+        return candidates
+
     @torch.no_grad()
     def rebuild_pairing(self, W):
         """Recompute candidate pair sets from current real prototypes W (D, C).
@@ -88,7 +174,8 @@ class PersistentSynthState:
         Columns are assigned persistently: a pair already in `pair_col` keeps its
         column; only genuinely new pairs consume a fresh column (until max_cols).
         Resets the per-epoch activated set. Identical on all DDP ranks because W
-        is synchronised at the epoch boundary.
+        is synchronised at the epoch boundary (cluster mode additionally pins
+        the k-means to CPU float32 with a fixed seed).
         """
         Wn = F.normalize(W.detach(), dim=0)          # (D, C)
         cos = Wn.t() @ Wn                            # (C, C)
@@ -98,10 +185,18 @@ class PersistentSynthState:
         self.spk_partner = {s: int(topk_idx[s][0]) for s in range(self.num_real)}
         self.candidate_pairs = defaultdict(list)
 
+        if self.pair_strategy == "crp" and self.candidate_pool == "cluster":
+            per_anchor = self._cluster_candidates(Wn.t(), cos)
+        else:
+            per_anchor = None
+
         for s in range(self.num_real):
             partners = [self.spk_partner[s]]
             if self.pair_strategy == "crp":
-                partners = [int(j) for j in topk_idx[s]]
+                if per_anchor is not None:
+                    partners = [int(j) for j in per_anchor[s]]
+                else:
+                    partners = [int(j) for j in topk_idx[s]]
             for j in partners:
                 key = self._key(s, j)
                 if self.pair_strategy != "crp":
@@ -309,6 +404,9 @@ class PersistentSynthState:
             "pair_strategy": self.pair_strategy,
             "crp_alpha": self.crp_alpha,
             "crp_topk": self.crp_topk,
+            "candidate_pool": self.candidate_pool,
+            "cluster_size": self.cluster_size,
+            "cluster_assign": [int(c) for c in self.cluster_assign],
             "bank": {
                 int(spk): [emb.detach().cpu() for emb in queue]
                 for spk, queue in self.bank.items()
@@ -344,6 +442,9 @@ class PersistentSynthState:
         self.pair_strategy = state.get("pair_strategy", self.pair_strategy)
         self.crp_alpha = float(state.get("crp_alpha", self.crp_alpha))
         self.crp_topk = int(state.get("crp_topk", self.crp_topk))
+        self.candidate_pool = state.get("candidate_pool", self.candidate_pool)
+        self.cluster_size = int(state.get("cluster_size", self.cluster_size))
+        self.cluster_assign = [int(c) for c in state.get("cluster_assign", [])]
 
         self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))
         for spk, queue in state.get("bank", {}).items():

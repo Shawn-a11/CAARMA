@@ -34,7 +34,7 @@ class amsoftmax_gan(nn.Module):
     def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30,
                  persistence=False, slerp_t=0.5, synth_bank_size=10,
                  synth_max_factor=4, pair_strategy="fixed_nn", crp_alpha=1.0,
-                 crp_topk=4, **kwargs):
+                 crp_topk=4, candidate_pool="topk", cluster_size=8, **kwargs):
         super(amsoftmax_gan, self).__init__()
         self.m = margin
         self.s = scale
@@ -60,11 +60,15 @@ class amsoftmax_gan(nn.Module):
                                               bank_size=synth_bank_size,
                                               pair_strategy=pair_strategy,
                                               crp_alpha=crp_alpha,
-                                              crp_topk=crp_topk)
+                                              crp_topk=crp_topk,
+                                              candidate_pool=candidate_pool,
+                                              cluster_size=cluster_size)
             print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f slerp_t=%.2f '
-                  'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f crp_topk=%d'
+                  'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f crp_topk=%d '
+                  'candidate_pool=%s cluster_size=%d'
                   % (self.m, self.s, self.slerp_t, self.max_cols,
-                     synth_bank_size, pair_strategy, crp_alpha, crp_topk))
+                     synth_bank_size, pair_strategy, crp_alpha, crp_topk,
+                     candidate_pool, cluster_size))
         else:
             print('Initialised AM-Softmax (one-shot SLERP) m=%.3f s=%.3f slerp_t=%.2f'
                   % (self.m, self.s, self.slerp_t))
