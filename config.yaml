@@ -57,7 +57,7 @@ mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
 resume_from_checkpoint: "None"  # full Lightning resume: optimizer/scheduler/epoch/global_step + synth table
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_fisher_ucb_crp_persistent_synth_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_corrected_popularity_crp_persistent_synth_ddp"
 title: "caarma_mfa"
 
 # ── Persistent synthetic classes ──────────────────────────────────────────
@@ -71,5 +71,5 @@ synth_max_factor: 4          # W_syn columns = synth_max_factor * num_spk
 pair_strategy: "crp"         # "fixed_nn" = v1; "crp" = v2 create-vs-reuse sampling
 crp_alpha: 1.0               # larger -> create new synthetic pairs more often
 crp_topk: 4                  # new pairs are sampled from each anchor's top-k NN speakers
-reuse_policy: "fisher_ucb"   # keep CRP create mass; choose reuse by Fisher utility + UCB1
+reuse_policy: "popularity"   # corrected v2 control: CRP occupancy-weighted reuse, no Fisher/UCB
 discriminator_type: "spectral"   # "spectral" = 1-hidden MLP (professor: simple D); "mlp" = old 2-hidden
