@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from copy import deepcopy
+from pathlib import Path
 from typing import Any, Union
 import torch.distributed as dist
 #from pytorch_lightning.plugins import DDPPlugin
@@ -23,6 +24,7 @@ from criterion.build_criterion import build_criterion
 from model.model_build import build_model
 from model.discriminator_mix import MixupDiscriminator, Discriminator_spectral
 from helper.mixup_avg import mixup_data_euc_avg
+from tools.audit_crp_occupancy import append_epoch_log, snapshot_live_state
 
 from scipy.interpolate import interp1d
 from sklearn.metrics import roc_curve
@@ -240,6 +242,19 @@ class Task(LightningModule):
         main_scheduler, d_scheduler = self.lr_schedulers()
         main_scheduler.step()
         d_scheduler.step()
+        # Persistent-CRP diagnostics: one occupancy line per epoch so the exact
+        # saturation epoch is recoverable without per-epoch checkpoints. The
+        # Python registry is rank-local, so only rank 0 is recorded; failures
+        # here must never abort a training run.
+        if getattr(self.loss, 'persistence', False) and self.trainer.is_global_zero:
+            try:
+                row = snapshot_live_state(self.loss.synth,
+                                          epoch=self.current_epoch,
+                                          global_step=self.trainer.global_step)
+                append_epoch_log(
+                    Path(self.config['save_dir']) / "crp_occupancy_timeline.jsonl", row)
+            except Exception as error:
+                print(f"[crp-occupancy] epoch log skipped: {error}")
     def on_test_epoch_start(self):
         return self.on_validation_epoch_start()
     
