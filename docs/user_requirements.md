@@ -1,21 +1,29 @@
-# User Requirements
+# User Requirements: Corrected Natural-Cluster CRP
 
-## Fisher-UCB CRP Reuse
+Execute the experiment tree's declared next step: replace the CRP v2 global
+top-k nearest-neighbour candidate pool with candidates drawn from each
+anchor's natural cluster, as one controlled change.
 
-- Base the experiment on the reported 3.57 CRP Persistent Synth v2 code.
-- Keep top-k pairing, SLERP, joint-L_syn, persistent W_syn, CRP alpha, and the
-  spectral MLP discriminator unchanged.
-- Replace popularity-weighted reuse with value-aware reuse only.
-- Compute a bounded boundary utility from the assigned synthetic class and its
-  strongest competitor; do not add percentile windows or tuned thresholds.
-- Use standard UCB1 to balance useful-class reuse and under-visited exploration.
-- Keep the CRP new-versus-reuse probability unchanged for causal attribution.
-- Synchronize persistent class semantics and utility state across DDP ranks.
-- Reuse the same synthetic pair plan in the D-step and M-step.
-- Do not include experiment logs, checkpoints, or result artifacts in commits.
+## Constraints
 
-## Experiment Boundary
+- Use the corrected popularity CRP implementation as the matched control.
+- Keep the CRP create-vs-reuse law, `crp_alpha`, popularity reuse, joint-L_syn,
+  SLERP generation, memory bank, persistence, and discriminator unchanged.
+- Keep the per-anchor branching factor comparable: at most `crp_topk`
+  candidates per anchor, now restricted to the anchor's own cluster.
+- The clustering must be identical on every DDP rank without communication.
+- `candidate_pool: "topk"` must reproduce the corrected control behaviour.
+- Pair columns and visit counts must remain synchronized across DDP ranks.
+- D-step and M-step must use the same selected persistent pair.
+- Checkpoints must round-trip the new state fields and tolerate old
+  checkpoints that lack them.
+- Use an isolated `save_dir` so no earlier run is overwritten.
 
-- This branch does not add gender constraints, natural clusters, Projection-D,
-  boundary-window filtering, or a minimum-visit occupancy rule.
-- Full four-GPU training and performance evaluation run on the SSH server.
+## Evaluation
+
+- Historical top-k CRP v2: 3.57 / .36 — context only.
+- Corrected top-k popularity CRP — direct matched control to run first.
+- Prior candidate-policy attempts (hard gender 3.70, feedback alpha 3.70,
+  gender p60–p90 3.55, boundary utility 3.56) — none clearly beat v2.
+- The run inherits per-epoch occupancy logging, so the occupancy distribution
+  under the cluster pool can be compared against the corrected control.

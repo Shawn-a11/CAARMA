@@ -1,63 +1,63 @@
-# Fisher-UCB CRP Implementation
+# Corrected Natural-Cluster CRP Implementation
 
 ## Controlled Change
 
-The CRP creation decision remains:
+The corrected popularity control builds each anchor's creation candidates from
+the global top-k nearest-neighbour prototypes. This experiment replaces only
+that candidate pool:
 
-$$
-P(\mathrm{new})=\frac{\alpha}{N_i+\alpha}.
-$$
+1. At every epoch start, the epoch-synced real prototypes `W` are clustered
+   with deterministic spherical k-means (`num_clusters = round(C /
+   cluster_size)`, cosine assignment, k-means++-style seeding, fixed seed,
+   CPU float32).
+2. An anchor's candidates are its top-`crp_topk` nearest neighbours *within
+   its own cluster*, ranked by the same prototype cosine used by v2.
+3. A singleton cluster falls back to the anchor's global top-1 neighbour, so
+   every anchor keeps at least one candidate, as in v2.
 
-Only selection among existing classes changes. The v2 visit-count weighting is
-replaced by standard UCB1.
+`select_pair`, the create probability `alpha / (N_i + alpha)`,
+popularity-weighted reuse, memory bank, joint-L_syn, and discriminator are
+unchanged. Pair columns remain persistent across epochs even as clusters drift.
 
-## Reward
+## Corrected Execution Invariants
 
-For a synthetic sample assigned to persistent class $c$:
+1. Candidate pairs receive deterministic `W_syn` columns on every DDP rank.
+2. D-step and M-step reuse the same sampled pair plan.
+3. Visit and activation deltas are all-reduced before the next selection.
+4. `reuse_policy: popularity` disables Fisher-UCB scoring.
 
-$$
-z_c=s(\cos(e_{\mathrm{syn}},W_{\mathrm{syn}}[c])-m),
-\qquad
-z_-=\max_{k\ne c}z_k,
-$$
+## Motivation
 
-$$
-p_c=\sigma(z_c-z_-),
-\qquad
-u_c=4p_c(1-p_c).
-$$
-
-Positive learning progress rescues a difficult class that is improving:
-
-$$
-g_c=\max(0,p_c^{(t)}-p_c^{(t-1)}),
-\qquad
-r_c=\max(u_c,g_c).
-$$
-
-The bounded reward $r_c\in[0,1]$ is accumulated per persistent class. Reuse is:
-
-$$
-c^*=\arg\max_c\left[
-\bar r_c+\sqrt{\frac{2\log T}{n_c}}
-\right].
-$$
-
-## Code Flow
-
-1. `helper/synth_table.py` deterministically reserves pair-to-column semantics,
-   recycles unvisited reservations at epoch boundaries, tracks bounded rewards,
-   selects reuse classes with UCB1, and all-reduces visit/reward deltas.
-2. `criterion/amsoftmax_mix_gan.py` caches the D-step pair plan, reuses it in the
-   M-step, and derives Fisher utility from joint-L_syn logits.
-3. `train.py` commits synchronized state once after joint-L_syn on every rank.
-4. `config.yaml` enables only `reuse_policy: fisher_ucb` over the CRP v2 setup.
-
-The same code exposes `--reuse-policy popularity` and `--save-dir` so the
-corrected matched control shares every DDP and pair-plan fix with the method.
+- Top-k NN pairs can chain across the embedding manifold; within-cluster
+  interpolation keeps synthetic speakers inside a natural speaker
+  neighbourhood.
+- The within-cluster pool generates fewer distinct pairs per epoch
+  (measured ~2953 vs registry capacity 4844 at C=1211, k=4, mean cluster
+  size 8), so the registry saturates later and reuse concentrates on
+  coherent pairs.
 
 ## DDP Invariant
 
-Every pair has the same `W_syn` column on every rank. Local memory banks may
-differ, but successful visit and reward deltas are globally reduced before the
-next pair-selection step.
+`rebuild_pairing` runs independently on every rank from identical synchronized
+`W`. K-means is pinned to CPU float32 with a fixed seed, so cluster assignments,
+candidate pools, and deterministic column reservations agree across ranks.
+
+## Parameters (config.yaml)
+
+- `candidate_pool`: `"topk"` (v2 behaviour, default) or `"cluster"`.
+- `cluster_size`: target mean cluster size (default 8);
+  `num_clusters = max(1, round(num_spk / cluster_size))`.
+- `reuse_policy`: `"popularity"` for this experiment.
+- `candidate_pool: "cluster"` requires `pair_strategy: "crp"` and
+  `cluster_size >= 2`; violations raise at construction.
+
+## Cost
+
+One spherical k-means per epoch: ~0.07 s at C=1211, D=192 on CPU (measured),
+negligible against an epoch of DDP training.
+
+## Checkpoint State
+
+`candidate_pool`, `cluster_size`, and the current `cluster_assign` are added
+to the synth-state payload; loading tolerates their absence in older
+checkpoints.
