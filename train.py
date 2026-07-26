@@ -58,8 +58,30 @@ class Task(LightningModule):
         # backbone params follow the same toggle_optimizer path that already
         # works for the adapter/projection/head params.
 
-        # Paper Algorithm 2: λ_adv dynamically adjusted based on L_real/L_G ratio
-        self.lambda_adv = 0.25
+        # Paper Algorithm 2: lambda_adv dynamically adjusted from L_real/L_G.
+        # Every knob is explicit so autoresearch trials remain reviewable.
+        self.lambda_adv_mode = str(config.get('lambda_adv_mode', 'source_dynamic'))
+        if self.lambda_adv_mode not in {'source_dynamic', 'fixed'}:
+            raise ValueError(
+                "lambda_adv_mode must be 'source_dynamic' or 'fixed', got "
+                f"{self.lambda_adv_mode!r}"
+            )
+        self.lambda_adv_initial = float(config.get('lambda_adv_initial', 0.25))
+        self.lambda_adv_fixed = float(config.get('lambda_adv_fixed', 0.01))
+        self.lambda_adv_reset_each_step = bool(
+            config.get('lambda_adv_reset_each_step', True)
+        )
+        self.lambda_adv_ratio_low = float(config.get('lambda_adv_ratio_low', 0.5))
+        self.lambda_adv_ratio_high = float(config.get('lambda_adv_ratio_high', 1.5))
+        self.lambda_adv_floor = float(config.get('lambda_adv_floor', 0.0001))
+        self.lambda_adv_cap = float(config.get('lambda_adv_cap', 0.01))
+        self.lambda_adv_up_factor = float(config.get('lambda_adv_up_factor', 1.1))
+        self.lambda_adv_down_factor = float(config.get('lambda_adv_down_factor', 0.9))
+        self.lambda_adv = (
+            self.lambda_adv_fixed
+            if self.lambda_adv_mode == 'fixed'
+            else self.lambda_adv_initial
+        )
 
     def normalize(self, x):
         x_norm = torch.norm(x, p=2, dim=1, keepdim=True).clamp(min=1e-12)
@@ -70,6 +92,9 @@ class Task(LightningModule):
         embedding = self.model(feature)
         return embedding
     def adjust_lambda_adv(self, am_loss, g_loss):
+        if self.lambda_adv_mode == 'fixed':
+            self.lambda_adv = self.lambda_adv_fixed
+            return
         # Source-faithful control law (massabaali7/CAARMA train.py adjust_weight):
         # cap=0.01, floor=0.0001. This caps the adversarial weight at ~1% of total
         # loss so L_G stays a weak regularizer rather than competing with L_real.
@@ -77,10 +102,16 @@ class Task(LightningModule):
         # G step) the effective trajectory is the discrete {0.01, 0.225, 0.25}
         # set from source code, not our previous compounding range [0.01, 0.5].
         loss_ratio = am_loss.detach() / (g_loss.detach() + 1e-8)
-        if loss_ratio > 1.5:
-            self.lambda_adv = min(self.lambda_adv * 1.1, 0.01)
-        elif loss_ratio < 0.5:
-            self.lambda_adv = max(self.lambda_adv * 0.9, 0.0001)
+        if loss_ratio > self.lambda_adv_ratio_high:
+            self.lambda_adv = min(
+                self.lambda_adv * self.lambda_adv_up_factor,
+                self.lambda_adv_cap,
+            )
+        elif loss_ratio < self.lambda_adv_ratio_low:
+            self.lambda_adv = max(
+                self.lambda_adv * self.lambda_adv_down_factor,
+                self.lambda_adv_floor,
+            )
     
     def training_step(self, batch, batch_idx):
         opt_main, opt_d = self.optimizers()
@@ -119,11 +150,14 @@ class Task(LightningModule):
         # D forward uses ONE concatenated call (real + synthetic together).
         self.toggle_optimizer(opt_main)
 
-        # Source-faithful: reset λ_adv to 0.25 at start of every G step. This
+        # Source-faithful: reset lambda_adv to 0.25 at every G step. This
         # turns adjust_lambda_adv into a discrete one-shot decision based on
         # the current batch's am/g ratio, rather than a multiplicative drift
         # that compounds across batches.
-        self.lambda_adv = 0.25
+        if self.lambda_adv_mode == 'fixed':
+            self.lambda_adv = self.lambda_adv_fixed
+        elif self.lambda_adv_reset_each_step:
+            self.lambda_adv = self.lambda_adv_initial
 
         feature = self.features(waveform)
         embedding = self.model(feature)
@@ -193,16 +227,31 @@ class Task(LightningModule):
                        if id(p) not in hubert_param_ids]
         discriminator_optimizer = AdamW(
             [
-                {"params": head_params, "lr": 2e-4},
+                {
+                    "params": head_params,
+                    "lr": float(self.config.get('discriminator_head_lr', 2e-4)),
+                },
                 {"params": list(self.discriminator.hubert.parameters()),
-                 "lr": self.learning_rate * 0.01},
+                 "lr": self.learning_rate * float(
+                     self.config.get('discriminator_backbone_lr_factor', 0.01)
+                 )},
             ],
             weight_decay=self.weight_decay,
             betas=(0.5, 0.999)
         )
         
-        embedding_scheduler = StepLR(embedding_optimizer, step_size = 4, gamma=0.5)
-        discriminator_scheduler = StepLR(discriminator_optimizer, step_size = 4, gamma=0.5)
+        scheduler_step_size = int(self.config.get('lr_scheduler_step_size', 4))
+        scheduler_gamma = float(self.config.get('lr_scheduler_gamma', 0.5))
+        embedding_scheduler = StepLR(
+            embedding_optimizer,
+            step_size=scheduler_step_size,
+            gamma=scheduler_gamma,
+        )
+        discriminator_scheduler = StepLR(
+            discriminator_optimizer,
+            step_size=scheduler_step_size,
+            gamma=scheduler_gamma,
+        )
 
         return [embedding_optimizer, discriminator_optimizer], \
             [embedding_scheduler, discriminator_scheduler]
@@ -365,7 +414,14 @@ def cli_main():
             config = yaml.safe_load(file)
         return config
 
-    config = load_config("/root/autodl-tmp/CAARMA/config.yaml")
+    parser = ArgumentParser()
+    parser.add_argument(
+        '--config',
+        default='/root/autodl-tmp/CAARMA/config.yaml',
+        help='Path to the YAML experiment configuration.',
+    )
+    args = parser.parse_args()
+    config = load_config(args.config)
 
     # Reproducibility: seed everything before any randomness (encoder init,
     # AM-Softmax W init, DataLoader workers, augmentation choices).
@@ -473,8 +529,14 @@ def cli_main():
         trainer.validate(final_project, datamodule=dataloader,
                          ckpt_path=config['checkpoint_path'])
     else:
-        trainer.fit(final_project, datamodule=dataloader)
+        resume_path = config.get('resume_from_checkpoint', 'None')
+        if resume_path in (None, '', 'None'):
+            resume_path = None
+        trainer.fit(
+            final_project,
+            datamodule=dataloader,
+            ckpt_path=resume_path,
+        )
     
 if __name__ == "__main__":
     cli_main()
-    
