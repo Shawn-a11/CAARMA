@@ -27,8 +27,12 @@ trial runner. Default values must reproduce the parent branch exactly.
 - `train.py`: accepts `--config`, consumes explicit optimizer/loss parameters,
   and supports full Lightning resume.
 - `criterion/build_criterion.py`: consumes AM-Softmax margin and scale.
+- `autoresearch/build_dev_split.py`: deterministically holds out development
+  utterances, removes them from the tuning training CSV, and writes balanced
+  verification trials plus an audit manifest.
 - `autoresearch/run_trial.py`: validates overrides, creates an isolated trial
-  directory, runs training, parses metrics, and appends an untracked TSV.
+  directory, requires the filtered training CSV and matching evaluation root,
+  runs training, parses metrics, and appends an untracked TSV.
 - `autoresearch/summarize.py`: ranks completed trials.
 - `autoresearch/search_space.yaml`: whitelist and staged candidate values.
 - `autoresearch/program.md`: operating policy for an autonomous coding agent.
@@ -37,7 +41,10 @@ trial runner. Default values must reproduce the parent branch exactly.
 
 ## Result policy
 
-The primary objective is development EER. minDCF(10-2) breaks near ties.
+The primary objective is development EER. minDCF(10-2) breaks near ties. The
+development protocol is utterance-disjoint: held-out evaluation utterances are
+removed from the training CSV while speaker identities remain represented in
+training. The split seed and trial hash are recorded in `manifest.json`.
 Generated artifacts are excluded from Git. Final candidates require full-budget
 training and multiple seeds.
 

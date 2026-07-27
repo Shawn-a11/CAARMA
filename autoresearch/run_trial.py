@@ -281,6 +281,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--budget", required=True, type=int, help="Total max epochs.")
     parser.add_argument("--seed", required=True, type=int)
     parser.add_argument("--trial-path", required=True, type=Path)
+    parser.add_argument(
+        "--train-csv",
+        required=True,
+        type=Path,
+        help="Training CSV with every development-evaluation utterance removed.",
+    )
+    parser.add_argument(
+        "--eval-root",
+        required=True,
+        type=Path,
+        help="Audio root relative to which trial-list paths are resolved.",
+    )
     parser.add_argument("--set", action="append", default=[], dest="overrides")
     parser.add_argument("--description", default="")
     parser.add_argument("--base-config", type=Path, default=DEFAULT_CONFIG)
@@ -316,14 +328,23 @@ def main() -> int:
         raise SystemExit("timeout-minutes must be positive")
     if not args.trial_path.expanduser().is_file():
         raise SystemExit(f"trial-path not found: {args.trial_path}")
+    if not args.train_csv.expanduser().is_file():
+        raise SystemExit(f"train-csv not found: {args.train_csv}")
+    if not args.eval_root.expanduser().is_dir():
+        raise SystemExit(f"eval-root is not a directory: {args.eval_root}")
     if args.resume_from and not args.resume_from.expanduser().is_file():
         raise SystemExit(f"resume checkpoint not found: {args.resume_from}")
     if args.import_log and not args.import_log.expanduser().is_file():
         raise SystemExit(f"existing log not found: {args.import_log}")
-    if "test" in str(args.trial_path).lower() and not args.allow_final_test:
+    final_test_hint = any(
+        "test" in str(path).lower()
+        for path in (args.trial_path, args.eval_root)
+    )
+    if final_test_hint and not args.allow_final_test:
         raise SystemExit(
-            "trial-path looks like a final test list. Use a development trial list, "
-            "or pass --allow-final-test explicitly for a controlled reproduction run."
+            "trial-path or eval-root looks like a final test asset. Use the held-out "
+            "development split, or pass --allow-final-test explicitly for a "
+            "controlled reproduction run."
         )
 
     base_config = load_yaml(args.base_config)
@@ -349,6 +370,8 @@ def main() -> int:
     config["epochs"] = int(args.budget)
     config["seed"] = int(args.seed)
     config["trial_path"] = str(args.trial_path.expanduser().resolve())
+    config["dataset"] = str(args.train_csv.expanduser().resolve())
+    config["root"] = str(args.eval_root.expanduser().resolve()) + os.sep
     config["mode"] = "fit"
     config["checkpoint_path"] = "None"
     config["resume_from_checkpoint"] = (
@@ -378,6 +401,8 @@ def main() -> int:
         "budget_epochs": args.budget,
         "seed": args.seed,
         "trial_path": str(args.trial_path),
+        "train_csv": str(args.train_csv),
+        "eval_root": str(args.eval_root),
         "resume_from": str(args.resume_from) if args.resume_from else None,
     }
     metadata_path = run_dir / "trial.json"

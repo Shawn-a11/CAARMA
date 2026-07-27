@@ -27,9 +27,36 @@ Verify the fixed local assets:
 
 ```bash
 test -f /root/autodl-tmp/CAARMA/voxceleb_full.csv
-test -f /path/to/development_trials.txt
+test -d /root/autodl-tmp/voxcele1_dataset/dev/wav
 nvidia-smi
 ```
+
+## Build development trials once
+
+`dev/wav` is the source corpus used by the training CSV; it is not automatically
+a leakage-free validation set. Build a deterministic utterance-held-out split:
+
+```bash
+python autoresearch/build_dev_split.py \
+  --input-csv /root/autodl-tmp/CAARMA/voxceleb_full.csv \
+  --eval-root /root/autodl-tmp/voxcele1_dataset/dev/wav \
+  --output-dir /root/autodl-tmp/CAARMA/autoresearch_splits/mlpd_dev_s42 \
+  --seed 42
+
+export TRAIN_CSV=/root/autodl-tmp/CAARMA/autoresearch_splits/mlpd_dev_s42/train.csv
+export DEV_TRIALS=/root/autodl-tmp/CAARMA/autoresearch_splits/mlpd_dev_s42/dev_trials.txt
+export DEV_ROOT=/root/autodl-tmp/voxcele1_dataset/dev/wav
+
+test -f "$TRAIN_CSV"
+test -f "$DEV_TRIALS"
+test -d "$DEV_ROOT"
+cat /root/autodl-tmp/CAARMA/autoresearch_splits/mlpd_dev_s42/manifest.json
+```
+
+The builder holds out three utterances per speaker, removes them from
+`train.csv`, and creates balanced positive/negative verification trials. Keep
+this split fixed across all tuning trials. Do not use `test/` or
+`voxceleb1_test_v2.txt` for model selection.
 
 ## Prepare one trial without training
 
@@ -38,7 +65,9 @@ python autoresearch/run_trial.py \
   --tag smoke_baseline_s42 \
   --budget 8 \
   --seed 42 \
-  --trial-path /path/to/development_trials.txt \
+  --train-csv "$TRAIN_CSV" \
+  --trial-path "$DEV_TRIALS" \
+  --eval-root "$DEV_ROOT" \
   --dry-run
 ```
 
@@ -59,7 +88,9 @@ python autoresearch/run_trial.py \
   --tag baseline_b8_s42 \
   --budget 8 \
   --seed 42 \
-  --trial-path /path/to/development_trials.txt \
+  --train-csv "$TRAIN_CSV" \
+  --trial-path "$DEV_TRIALS" \
+  --eval-root "$DEV_ROOT" \
   --description "unaltered joint-Lsyn MLP-D baseline"
 ```
 
@@ -82,7 +113,9 @@ python autoresearch/run_trial.py \
   --tag opt_lr5e4_b8_s42 \
   --budget 8 \
   --seed 42 \
-  --trial-path /path/to/development_trials.txt \
+  --train-csv "$TRAIN_CSV" \
+  --trial-path "$DEV_TRIALS" \
+  --eval-root "$DEV_ROOT" \
   --set init_lr=0.0005 \
   --description "optimization stage: lower main learning rate"
 ```
@@ -96,7 +129,9 @@ python autoresearch/run_trial.py \
   --tag opt_lr5e4_b30_s42 \
   --budget 30 \
   --seed 42 \
-  --trial-path /path/to/development_trials.txt \
+  --train-csv "$TRAIN_CSV" \
+  --trial-path "$DEV_TRIALS" \
+  --eval-root "$DEV_ROOT" \
   --resume-from "$CAARMA_AUTORESEARCH_ROOT/opt_lr5e4_b8_s42/checkpoints/last.ckpt" \
   --set init_lr=0.0005 \
   --description "promote lower-LR trial to full budget"
@@ -113,7 +148,9 @@ python autoresearch/run_trial.py \
   --tag existing_baseline_s42 \
   --budget 30 \
   --seed 42 \
+  --train-csv /path/to/the_training_csv_used_for_that_run.csv \
   --trial-path /path/to/the_trials_used_for_that_run.txt \
+  --eval-root /path/to/the_audio_root_used_for_that_run \
   --import-log /path/to/existing_training.log \
   --description "existing joint-Lsyn MLP-D baseline run"
 ```

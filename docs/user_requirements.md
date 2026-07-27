@@ -12,3 +12,5 @@
   whitelist.
 - Select configurations on development trials; final test trials must require an
   explicit override.
+- Remove every development-trial utterance from the tuning-time training CSV and
+  keep the split fixed across all compared trials.

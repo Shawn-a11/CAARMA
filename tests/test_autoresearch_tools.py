@@ -1,4 +1,6 @@
 import importlib.util
+import csv
+import json
 import subprocess
 import sys
 import tempfile
@@ -10,6 +12,7 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).parents[1]
 RUNNER_PATH = PROJECT_ROOT / "autoresearch" / "run_trial.py"
+SPLIT_BUILDER_PATH = PROJECT_ROOT / "autoresearch" / "build_dev_split.py"
 SPEC = importlib.util.spec_from_file_location("run_trial", RUNNER_PATH)
 runner = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -17,6 +20,19 @@ SPEC.loader.exec_module(runner)
 
 
 class AutoresearchToolsTest(unittest.TestCase):
+    @staticmethod
+    def write_runner_inputs(root):
+        trials = root / "dev_trials.txt"
+        trials.write_text("1 enroll.wav test.wav\n", encoding="utf-8")
+        train_csv = root / "train.csv"
+        train_csv.write_text(
+            "utt_paths,utt_spk_int_labels\n/train.wav,0\n",
+            encoding="utf-8",
+        )
+        eval_root = root / "dev_wav"
+        eval_root.mkdir()
+        return trials, train_csv, eval_root
+
     def test_experiment_family_and_default_output_are_isolated(self):
         config = runner.load_yaml(PROJECT_ROOT / "config.yaml")
         space = runner.load_yaml(PROJECT_ROOT / "autoresearch" / "search_space.yaml")
@@ -58,11 +74,49 @@ cosine minDCF(10-3): 0.4888
         with self.assertRaises(ValueError):
             runner.validate_overrides({"init_lr": 0.003}, allowed)
 
+    def test_final_test_eval_root_requires_explicit_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            trials = root / "renamed_trials.txt"
+            trials.write_text("1 enroll.wav test.wav\n", encoding="utf-8")
+            train_csv = root / "train.csv"
+            train_csv.write_text(
+                "utt_paths,utt_spk_int_labels\n/train.wav,0\n",
+                encoding="utf-8",
+            )
+            eval_root = root / "test" / "wav"
+            eval_root.mkdir(parents=True)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(RUNNER_PATH),
+                    "--tag",
+                    "blocked-final-test",
+                    "--budget",
+                    "8",
+                    "--seed",
+                    "42",
+                    "--trial-path",
+                    str(trials),
+                    "--train-csv",
+                    str(train_csv),
+                    "--eval-root",
+                    str(eval_root),
+                    "--output-root",
+                    str(root / "runs"),
+                    "--dry-run",
+                ],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("final test asset", result.stderr)
+
     def test_dry_run_generates_isolated_config_and_blocks_duplicate(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            trials = root / "dev_trials.txt"
-            trials.write_text("1 enroll.wav test.wav\n", encoding="utf-8")
+            trials, train_csv, eval_root = self.write_runner_inputs(root)
             output = root / "runs"
             command = [
                 sys.executable,
@@ -75,6 +129,10 @@ cosine minDCF(10-3): 0.4888
                 "42",
                 "--trial-path",
                 str(trials),
+                "--train-csv",
+                str(train_csv),
+                "--eval-root",
+                str(eval_root),
                 "--output-root",
                 str(output),
                 "--set",
@@ -94,6 +152,8 @@ cosine minDCF(10-3): 0.4888
             self.assertEqual(generated["init_lr"], 0.0005)
             self.assertEqual(generated["epochs"], 8)
             self.assertEqual(generated["seed"], 42)
+            self.assertEqual(generated["dataset"], str(train_csv.resolve()))
+            self.assertEqual(generated["root"], str(eval_root.resolve()) + "/")
 
             command[command.index("dry-one")] = "dry-two"
             second = subprocess.run(
@@ -108,8 +168,7 @@ cosine minDCF(10-3): 0.4888
     def test_existing_log_can_be_registered_without_training(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            trials = root / "dev_trials.txt"
-            trials.write_text("1 enroll.wav test.wav\n", encoding="utf-8")
+            trials, train_csv, eval_root = self.write_runner_inputs(root)
             existing_log = root / "existing.log"
             existing_log.write_text(
                 "\n".join(
@@ -135,6 +194,10 @@ cosine minDCF(10-3): 0.4888
                     "42",
                     "--trial-path",
                     str(trials),
+                    "--train-csv",
+                    str(train_csv),
+                    "--eval-root",
+                    str(eval_root),
                     "--output-root",
                     str(output),
                     "--import-log",
@@ -149,6 +212,88 @@ cosine minDCF(10-3): 0.4888
             self.assertIn("3.51", result_text)
             self.assertIn("0.3405", result_text)
             self.assertIn("\timported\t", result_text)
+
+    def test_dev_split_is_deterministic_and_has_no_utterance_overlap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            eval_root = root / "dev" / "wav"
+            rows = []
+            for speaker in range(3):
+                for utterance in range(5):
+                    audio = (
+                        eval_root
+                        / f"id{speaker:05d}"
+                        / f"recording{utterance:02d}"
+                        / "00001.wav"
+                    )
+                    audio.parent.mkdir(parents=True, exist_ok=True)
+                    audio.touch()
+                    rows.append(
+                        {
+                            "utt_paths": str(audio),
+                            "utt_spk_int_labels": str(speaker),
+                        }
+                    )
+
+            input_csv = root / "full.csv"
+            with input_csv.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["utt_paths", "utt_spk_int_labels"],
+                )
+                writer.writeheader()
+                writer.writerows(rows)
+
+            outputs = []
+            for name in ("split_a", "split_b"):
+                output = root / name
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(SPLIT_BUILDER_PATH),
+                        "--input-csv",
+                        str(input_csv),
+                        "--eval-root",
+                        str(eval_root),
+                        "--output-dir",
+                        str(output),
+                        "--seed",
+                        "42",
+                    ],
+                    cwd=PROJECT_ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                outputs.append(output)
+
+            self.assertEqual(
+                (outputs[0] / "dev_trials.txt").read_bytes(),
+                (outputs[1] / "dev_trials.txt").read_bytes(),
+            )
+            manifest = json.loads(
+                (outputs[0] / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["speakers"], 3)
+            self.assertEqual(manifest["input_utterances"], 15)
+            self.assertEqual(manifest["training_utterances"], 6)
+            self.assertEqual(manifest["heldout_utterances"], 9)
+            self.assertEqual(manifest["positive_trials"], 9)
+            self.assertEqual(manifest["negative_trials"], 9)
+
+            with (outputs[0] / "train.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                train_paths = {
+                    row["utt_paths"] for row in csv.DictReader(handle)
+                }
+            with (outputs[0] / "heldout.csv").open(
+                "r", encoding="utf-8", newline=""
+            ) as handle:
+                heldout_paths = {
+                    row["utt_paths"] for row in csv.DictReader(handle)
+                }
+            self.assertFalse(train_paths.intersection(heldout_paths))
 
 
 if __name__ == "__main__":
