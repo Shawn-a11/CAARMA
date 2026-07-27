@@ -17,6 +17,16 @@ SPEC.loader.exec_module(runner)
 
 
 class AutoresearchToolsTest(unittest.TestCase):
+    def test_experiment_family_and_default_output_are_isolated(self):
+        config = runner.load_yaml(PROJECT_ROOT / "config.yaml")
+        space = runner.load_yaml(PROJECT_ROOT / "autoresearch" / "search_space.yaml")
+        runner.validate_frozen_config(config, space)
+        self.assertEqual(config["experiment_family"], "joint_lsyn_mlpd_v1")
+        self.assertEqual(
+            runner.DEFAULT_OUTPUT_ROOT.name,
+            "autoresearch_runs_joint_lsyn_mlpd",
+        )
+
     def test_metric_parser_keeps_matching_dcf_values(self):
         log = """
 Epoch 4: 100% complete

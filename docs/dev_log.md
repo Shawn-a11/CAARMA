@@ -33,5 +33,6 @@
 
 ## Running
 
-See `autoresearch/README.md`. The generated `autoresearch_runs/` directory and
+See `autoresearch/README.md`. The generated
+`autoresearch_runs_joint_lsyn_mlpd/` directory and
 `autoresearch/results.tsv` are ignored by Git.

@@ -32,7 +32,7 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = PROJECT_ROOT / "config.yaml"
 DEFAULT_SPACE = Path(__file__).with_name("search_space.yaml")
-DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "autoresearch_runs"
+DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "autoresearch_runs_joint_lsyn_mlpd"
 TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 EER_PATTERN = re.compile(r"cosine EER:\s*([0-9]+(?:\.[0-9]+)?)%")
 DCF2_PATTERN = re.compile(r"cosine minDCF\(10-2\):\s*([0-9]+(?:\.[0-9]+)?)")

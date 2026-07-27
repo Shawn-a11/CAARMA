@@ -2,6 +2,7 @@ version: 1
 
 # These values define the 3.61 joint-Lsyn MLP-D method and are immutable.
 frozen_config:
+  experiment_family: "joint_lsyn_mlpd_v1"
   model: "MFA-CONFORMER"
   features: "Fbank"
   do_augmentation: false

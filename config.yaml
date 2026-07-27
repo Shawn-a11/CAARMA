@@ -59,6 +59,7 @@ checkpoint_path: "None"
 resume_from_checkpoint: "None"
 save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_joint_lsyn_ddp"
 title: "caarma_mfa"
+experiment_family: "joint_lsyn_mlpd_v1"
 
 # Reproducible trial seed used by Lightning, torch, NumPy, Python, and workers.
 seed: 42

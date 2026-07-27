@@ -19,7 +19,7 @@ git checkout -B exp/autoresearch-joint-lsyn-mlpd-baseline-tuning-ddp \
   origin/exp/autoresearch-joint-lsyn-mlpd-baseline-tuning-ddp
 
 conda activate caarma
-export CAARMA_AUTORESEARCH_ROOT=/root/autodl-tmp/CAARMA/autoresearch_runs
+export CAARMA_AUTORESEARCH_ROOT=/root/autodl-tmp/CAARMA/autoresearch_runs_joint_lsyn_mlpd
 mkdir -p "$CAARMA_AUTORESEARCH_ROOT"
 ```
 

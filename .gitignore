@@ -9,4 +9,5 @@ train_log.txt
 nohup.out
 voxceleb_full.csv
 autoresearch_runs/
+autoresearch_runs_joint_lsyn_mlpd/
 autoresearch/results.tsv
