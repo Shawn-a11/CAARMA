@@ -76,6 +76,51 @@ class CrpOccupancyAuditTest(unittest.TestCase):
             result["state_path"],
             "checkpoint.state_dict.loss._extra_state.synth",
         )
+        self.assertEqual(result["duplicate_state_aliases"], 0)
+        self.assertEqual(
+            result["state_paths"],
+            ["checkpoint.state_dict.loss._extra_state.synth"],
+        )
+
+    def test_identical_loss_aliases_are_collapsed(self):
+        checkpoint = {
+            "epoch": 6,
+            "state_dict": {
+                "loss._extra_state": {
+                    "persistence": True,
+                    "synth": self.state,
+                },
+                "loss_syn._extra_state": {
+                    "persistence": True,
+                    "synth": dict(self.state),
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "epoch=6.ckpt"
+            torch.save(checkpoint, path)
+            result = audit.audit_checkpoint(path)
+
+        self.assertEqual(result["duplicate_state_aliases"], 1)
+        self.assertEqual(len(result["state_paths"]), 2)
+        self.assertEqual(result["occupied_classes"], 4)
+
+    def test_non_identical_loss_aliases_are_rejected(self):
+        changed = dict(self.state)
+        changed["pair_visits"] = list(self.state["pair_visits"]) + [
+            ((4, 5), 1),
+        ]
+        checkpoint = {
+            "state_dict": {
+                "loss._extra_state": {"synth": self.state},
+                "loss_syn._extra_state": {"synth": changed},
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "last.ckpt"
+            torch.save(checkpoint, path)
+            with self.assertRaisesRegex(ValueError, "non-identical"):
+                audit.audit_checkpoint(path)
 
     def test_positive_visits_recover_missing_created_pairs(self):
         state = dict(self.state)

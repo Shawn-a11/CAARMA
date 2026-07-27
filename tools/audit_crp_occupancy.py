@@ -82,6 +82,38 @@ def _pair_col_count(value: Any) -> int:
     raise ValueError("pair_col must be a mapping or a sequence")
 
 
+def _pair_columns(value: Any) -> tuple[tuple[tuple[int, ...], int], ...]:
+    if isinstance(value, Mapping):
+        rows = value.items()
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        rows = value
+    else:
+        raise ValueError("pair_col must be a mapping or a sequence")
+
+    columns = []
+    for row in rows:
+        if not isinstance(row, Sequence) or len(row) != 2:
+            raise ValueError(f"Malformed pair_col row: {row!r}")
+        key, column = row
+        columns.append((_pair_key(key), int(column)))
+    return tuple(sorted(columns))
+
+
+def _occupancy_identity(state: Mapping) -> tuple[Any, ...]:
+    """Identity used to collapse duplicate module aliases in a checkpoint."""
+    created = tuple(sorted(_pair_key(key) for key in state.get("created_pairs", [])))
+    visits = tuple(sorted(_pair_counts(state.get("pair_visits", [])).items()))
+    return (
+        int(state.get("max_cols", 0)),
+        state.get("pair_strategy"),
+        float(state.get("crp_alpha", 0.0)),
+        int(state.get("crp_topk", 0)),
+        _pair_columns(state.get("pair_col", [])),
+        created,
+        visits,
+    )
+
+
 def _nearest_rank(values: list[int], quantile: float) -> int:
     if not values:
         return 0
@@ -251,9 +283,13 @@ def audit_checkpoint(path: Path) -> dict[str, Any]:
             "No persistent CRP state found. Expected pair_visits, pair_col, and max_cols. "
             "This may be a one-shot run or an older checkpoint saved before extra state."
         )
-    if len(matches) > 1:
-        paths = ", ".join(path for path, _ in matches)
-        raise ValueError(f"Multiple CRP states found ({paths}); audit them separately.")
+    identities = [_occupancy_identity(state) for _, state in matches]
+    if any(identity != identities[0] for identity in identities[1:]):
+        paths = ", ".join(state_path for state_path, _ in matches)
+        raise ValueError(
+            f"Multiple non-identical CRP states found ({paths}); "
+            "audit cannot choose one safely."
+        )
 
     state_path, state = matches[0]
     result = audit_state(state)
@@ -264,6 +300,8 @@ def audit_checkpoint(path: Path) -> dict[str, Any]:
             "checkpoint_epoch_zero_based": int(raw_epoch) if raw_epoch is not None else None,
             "display_epoch_one_based": int(raw_epoch) + 1 if raw_epoch is not None else None,
             "state_path": state_path,
+            "state_paths": [match_path for match_path, _ in matches],
+            "duplicate_state_aliases": max(0, len(matches) - 1),
             "ddp_scope_warning": (
                 "Python CRP state is rank-local; a standard Lightning checkpoint normally "
                 "reports rank 0 only, not a merged multi-rank registry."
@@ -311,6 +349,12 @@ def _format_number(value: Any) -> str:
 def print_report(report: Mapping[str, Any]) -> None:
     print(f"Checkpoint: {report['checkpoint']}")
     print(f"State path: {report['state_path']}")
+    if report.get("duplicate_state_aliases"):
+        print(
+            "State aliases: "
+            f"{report['duplicate_state_aliases']} identical duplicate(s) collapsed "
+            f"({', '.join(report['state_paths'])})"
+        )
     print(
         "Epoch: "
         f"{_format_number(report['display_epoch_one_based'])} "

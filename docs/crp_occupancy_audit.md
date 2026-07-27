@@ -14,6 +14,12 @@ This reports singleton and doubleton ratios, median/p90/p99/maximum occupancy,
 Gini coefficient, the entropy-based effective number of classes, registry
 capacity usage, and visit concentration in the largest classes.
 
+Some CAARMA checkpoints contain both `loss._extra_state.synth` and
+`loss_syn._extra_state.synth` because the two Task attributes alias the same
+criterion module. The audit verifies that their occupancy identities are
+identical and collapses them into one report. It refuses to choose silently if
+multiple non-identical states are found.
+
 ## Saturation timeline
 
 ```bash
