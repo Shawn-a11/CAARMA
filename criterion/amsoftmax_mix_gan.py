@@ -50,6 +50,7 @@ class amsoftmax_gan(nn.Module):
         self._cached_synth = None
         self._cached_cols = None
         self._cached_selection = None
+        self.last_synth_cols = []
         if self.persistence:
             self.max_cols = int(synth_max_factor) * self.num_real
             # persistent learnable synthetic-class prototypes (DDP-synced).
@@ -93,6 +94,7 @@ class amsoftmax_gan(nn.Module):
         self._cached_synth = None
         self._cached_cols = None
         self._cached_selection = None
+        self.last_synth_cols = []
 
     # ------------------------------------------------------------------ utils
     def _am_loss(self, x_emb, W_cols, target, return_logits=False):
@@ -250,8 +252,10 @@ class amsoftmax_gan(nn.Module):
                     # adversarial-G in this training step.
                     self._cached_synth = synthetic
                     self._cached_cols = cols
+            self.last_synth_cols = [int(c) for c in cols]
         else:
             synthetic, y_oneshot, w_oneshot = self._gen_oneshot_slerp(x, label)
+            self.last_synth_cols = []
 
         if not flagSyn:
             # L_real over the real prototypes only (avoid double-counting; L_syn

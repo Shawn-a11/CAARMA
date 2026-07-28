@@ -22,7 +22,11 @@ from feature.build_feature import build_feature
 from functions.loader import super_dataset
 from criterion.build_criterion import build_criterion
 from model.model_build import build_model
-from model.discriminator_mix import MixupDiscriminator, Discriminator_spectral
+from model.discriminator_mix import (
+    MixupDiscriminator,
+    Discriminator_spectral,
+    ProjectionDiscriminator_spectral,
+)
 from helper.mixup_avg import mixup_data_euc_avg
 from tools.audit_crp_occupancy import append_epoch_log, snapshot_live_state
 
@@ -51,8 +55,13 @@ class Task(LightningModule):
         
         # Professor's guidance: HuBERT is wrong as the discriminator here; use a
         # simple one. "spectral" = 1-hidden-layer spectral-norm MLP (D->128->1).
-        if config.get('discriminator_type', 'spectral') == 'spectral':
+        discriminator_type = config.get('discriminator_type', 'spectral')
+        if discriminator_type == 'spectral':
             self.discriminator = Discriminator_spectral(config['embedding_dim']).train()
+        elif discriminator_type == 'projection':
+            self.discriminator = ProjectionDiscriminator_spectral(
+                config['embedding_dim']
+            ).train()
         else:
             self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
@@ -78,6 +87,29 @@ class Task(LightningModule):
         x_norm = torch.norm(x, p=2, dim=1, keepdim=True).clamp(min=1e-12)
         x_norm = torch.div(x, x_norm)
         return x_norm
+
+    def _disc_requires_condition(self):
+        return getattr(self.discriminator, "requires_condition", False)
+
+    def _real_conditions(self, label, device):
+        label = label.to(self.loss.W.device, dtype=torch.long)
+        condition = self.loss.W[:, label].detach().t()
+        return F.normalize(condition, dim=1).to(device)
+
+    def _synth_conditions(self, cols, device):
+        if not getattr(self.loss, "persistence", False):
+            raise RuntimeError("Projection MLP-D synthetic conditions require persistence=True")
+        if len(cols) == 0:
+            raise RuntimeError("Projection MLP-D received no synthetic columns")
+        idx = torch.tensor(cols, device=self.loss.W_syn.device, dtype=torch.long)
+        condition = self.loss.W_syn[:, idx].detach().t()
+        return F.normalize(condition, dim=1).to(device)
+
+    def _disc_forward(self, embeddings, conditions=None):
+        if self._disc_requires_condition():
+            return self.discriminator(embeddings, conditions)
+        return self.discriminator(embeddings)
+
     def forward(self, x):
         feature = self.features(x)
         embedding = self.model(feature)
@@ -120,6 +152,7 @@ class Task(LightningModule):
                 _, _, synth_for_d = self.loss(
                     embedding_d, label, cache_selection=True
                 )
+                synth_cols_d = list(getattr(self.loss, "last_synth_cols", []))
         finally:
             if model_was_training:
                 self.model.train()
@@ -129,7 +162,22 @@ class Task(LightningModule):
         combined_d = torch.cat(
             [self.normalize(embedding_d), self.normalize(synth_for_d)], dim=0
         )
-        preds_d_all = self.discriminator(combined_d)
+        if self._disc_requires_condition():
+            if len(synth_cols_d) != synth_for_d.size(0):
+                raise RuntimeError(
+                    "Projection MLP-D condition mismatch in D step: "
+                    f"{len(synth_cols_d)} cols for {synth_for_d.size(0)} synthetic rows"
+                )
+            cond_d = torch.cat(
+                [
+                    self._real_conditions(label, combined_d.device),
+                    self._synth_conditions(synth_cols_d, combined_d.device),
+                ],
+                dim=0,
+            )
+        else:
+            cond_d = None
+        preds_d_all = self._disc_forward(combined_d, cond_d)
         # real (B rows) is FIRST here, so the [:B] / [B:] split is correct even
         # when synth_for_d has Ns != B rows (persistent mode skips some samples).
         real_preds, fake_preds_d = preds_d_all[:B], preds_d_all[B:]
@@ -160,6 +208,7 @@ class Task(LightningModule):
         amsoftmax_loss, acc, synthetic_embeddings = self.loss(
             embedding, label, update_state=True, reuse_selection=True
         )
+        synth_cols_g = list(getattr(self.loss, "last_synth_cols", []))
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
         if getattr(self.loss, 'persistence', False):
             # Pair columns are deterministic; all-reduce the visit and bounded
@@ -176,7 +225,23 @@ class Task(LightningModule):
         combined_g = torch.cat(
             [self.normalize(synthetic_embeddings), self.normalize(embedding)], dim=0
         )
-        preds_g_all = self.discriminator(combined_g)
+        if self._disc_requires_condition():
+            if len(synth_cols_g) != synthetic_embeddings.size(0):
+                raise RuntimeError(
+                    "Projection MLP-D condition mismatch in G step: "
+                    f"{len(synth_cols_g)} cols for "
+                    f"{synthetic_embeddings.size(0)} synthetic rows"
+                )
+            cond_g = torch.cat(
+                [
+                    self._synth_conditions(synth_cols_g, combined_g.device),
+                    self._real_conditions(label, combined_g.device),
+                ],
+                dim=0,
+            )
+        else:
+            cond_g = None
+        preds_g_all = self._disc_forward(combined_g, cond_g)
         fake_preds_g, real_preds_g = preds_g_all[:Ns], preds_g_all[Ns:]
         g_loss = (self.BCE_loss(fake_preds_g, torch.ones_like(fake_preds_g)) +
                   self.BCE_loss(real_preds_g, torch.zeros_like(real_preds_g)))
