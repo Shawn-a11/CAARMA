@@ -34,7 +34,8 @@ class amsoftmax_gan(nn.Module):
     def __init__(self, embedding_dim, num_classes, margin=0.2, scale=30,
                  persistence=False, slerp_t=0.5, synth_bank_size=10,
                  synth_max_factor=4, pair_strategy="fixed_nn", crp_alpha=1.0,
-                 crp_topk=4, reuse_policy="popularity", **kwargs):
+                 crp_topk=4, reuse_policy="popularity", synth_init="xavier",
+                 **kwargs):
         super(amsoftmax_gan, self).__init__()
         self.m = margin
         self.s = scale
@@ -47,6 +48,9 @@ class amsoftmax_gan(nn.Module):
 
         self.persistence = bool(persistence)
         self.slerp_t = float(slerp_t)
+        self.synth_init = str(synth_init)
+        if self.synth_init not in ("xavier", "slerp_parents"):
+            raise ValueError(f"Unknown synth_init: {self.synth_init!r}")
         self._cached_synth = None
         self._cached_cols = None
         self._cached_selection = None
@@ -66,10 +70,10 @@ class amsoftmax_gan(nn.Module):
                                               reuse_policy=reuse_policy)
             print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f slerp_t=%.2f '
                   'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f '
-                  'crp_topk=%d reuse_policy=%s'
+                  'crp_topk=%d reuse_policy=%s synth_init=%s'
                   % (self.m, self.s, self.slerp_t, self.max_cols,
                      synth_bank_size, pair_strategy, crp_alpha, crp_topk,
-                     reuse_policy))
+                     reuse_policy, self.synth_init))
         else:
             print('Initialised AM-Softmax (one-shot SLERP) m=%.3f s=%.3f slerp_t=%.2f'
                   % (self.m, self.s, self.slerp_t))
@@ -81,6 +85,7 @@ class amsoftmax_gan(nn.Module):
             return {"persistence": False}
         return {
             "persistence": True,
+            "synth_init": self.synth_init,
             "synth": self.synth.state_dict(),
         }
 
@@ -95,6 +100,20 @@ class amsoftmax_gan(nn.Module):
         self._cached_cols = None
         self._cached_selection = None
         self.last_synth_cols = []
+
+    @torch.no_grad()
+    def rebuild_persistent_pairing(self):
+        """Rebuild pair columns and initialise only newly reserved prototypes."""
+        if not self.persistence:
+            return []
+        newly_reserved = self.synth.rebuild_pairing(self.W)
+        if self.synth_init == "slerp_parents":
+            for key, col in newly_reserved:
+                i, j = self.synth._members(key)
+                self.W_syn[:, int(col)].copy_(
+                    slerp(self.W[:, i], self.W[:, j], self.slerp_t)
+                )
+        return newly_reserved
 
     # ------------------------------------------------------------------ utils
     def _am_loss(self, x_emb, W_cols, target, return_logits=False):

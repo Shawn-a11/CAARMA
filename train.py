@@ -131,7 +131,7 @@ class Task(LightningModule):
         # from the current (DDP-synced) real prototypes and reset the per-epoch
         # activated set. Identical across ranks (W is synced at the boundary).
         if getattr(self.loss, 'persistence', False):
-            self.loss.synth.rebuild_pairing(self.loss.W)
+            self.loss.rebuild_persistent_pairing()
 
     def training_step(self, batch, batch_idx):
         opt_main, opt_d = self.optimizers()

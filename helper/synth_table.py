@@ -133,6 +133,7 @@ class PersistentSynthState:
         # visit. It only guarantees that every DDP rank gives a pair the same
         # W_syn column even when the ranks observe different local speakers.
         free_cols = iter(sorted(set(range(self.max_cols)) - set(self.col_pair)))
+        newly_reserved = []
         for key in sorted(all_candidate_keys, key=self._serialise_key):
             if key in self.pair_col:
                 continue
@@ -142,10 +143,12 @@ class PersistentSynthState:
                 break
             self.pair_col[key] = col
             self.col_pair[col] = key
+            newly_reserved.append((key, col))
 
         self._rebuild_pairs_by_speaker()
         self.activated_cols = set()
         self.last_stats = self._empty_stats()
+        return newly_reserved
 
     @staticmethod
     def _key(s, j):

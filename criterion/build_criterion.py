@@ -11,7 +11,8 @@ def build_criterion(config):
                                   pair_strategy=config.get('pair_strategy', 'fixed_nn'),
                                   crp_alpha=config.get('crp_alpha', 1.0),
                                   crp_topk=config.get('crp_topk', 4),
-                                  reuse_policy=config.get('reuse_policy', 'popularity'))
+                                  reuse_policy=config.get('reuse_policy', 'popularity'),
+                                  synth_init=config.get('synth_init', 'xavier'))
     elif config['criterion'] == 'AMSoftmax':
         criterion = amsoftmax(embedding_dim=config['embedding_dim'], num_classes=config['num_spk'], m=0.2, s=30)
     else:
