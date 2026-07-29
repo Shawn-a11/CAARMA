@@ -23,6 +23,7 @@ from functions.loader import super_dataset
 from criterion.build_criterion import build_criterion
 from model.model_build import build_model
 from model.discriminator_mix import (
+    ConcatConditionDiscriminator_spectral,
     MixupDiscriminator,
     Discriminator_spectral,
     ProjectionDiscriminator_spectral,
@@ -60,6 +61,10 @@ class Task(LightningModule):
             self.discriminator = Discriminator_spectral(config['embedding_dim']).train()
         elif discriminator_type == 'projection':
             self.discriminator = ProjectionDiscriminator_spectral(
+                config['embedding_dim']
+            ).train()
+        elif discriminator_type == 'concat':
+            self.discriminator = ConcatConditionDiscriminator_spectral(
                 config['embedding_dim']
             ).train()
         else:
@@ -494,9 +499,15 @@ def cli_main():
     )
     parser.add_argument(
         "--reuse-policy",
-        choices=("popularity", "fisher_ucb"),
+        choices=("popularity", "powered", "fisher_ucb"),
         default=None,
         help="Optional matched-ablation override for persistent class reuse",
+    )
+    parser.add_argument(
+        "--reuse-power",
+        type=float,
+        default=None,
+        help="Optional powered-CRP occupancy exponent in (0, 1]",
     )
     parser.add_argument(
         "--save-dir",
@@ -508,11 +519,14 @@ def cli_main():
     config = load_config(args.config)
     if args.reuse_policy is not None:
         config["reuse_policy"] = args.reuse_policy
+    if args.reuse_power is not None:
+        config["reuse_power"] = args.reuse_power
     if args.save_dir is not None:
         config["save_dir"] = args.save_dir
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Device: ", device)
     print("reuse_policy: {}".format(config.get("reuse_policy", "popularity")))
+    print("reuse_power: {}".format(config.get("reuse_power", 1.0)))
     
     dataloader = super_dataset(config)
 

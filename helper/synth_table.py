@@ -65,7 +65,8 @@ class PersistentSynthState:
     """
 
     def __init__(self, num_real, max_cols, bank_size=10, pair_strategy="fixed_nn",
-                 crp_alpha=1.0, crp_topk=4, reuse_policy="popularity"):
+                 crp_alpha=1.0, crp_topk=4, reuse_policy="popularity",
+                 reuse_power=1.0, candidate_pool="topk", cluster_size=8):
         self.num_real = int(num_real)
         self.max_cols = int(max_cols)
         self.bank_size = int(bank_size)
@@ -73,8 +74,24 @@ class PersistentSynthState:
         self.crp_alpha = float(crp_alpha)
         self.crp_topk = int(crp_topk)
         self.reuse_policy = str(reuse_policy)
-        if self.reuse_policy not in {"popularity", "fisher_ucb"}:
-            raise ValueError("reuse_policy must be 'popularity' or 'fisher_ucb'")
+        if self.reuse_policy not in {"popularity", "powered", "fisher_ucb"}:
+            raise ValueError(
+                "reuse_policy must be 'popularity', 'powered', or 'fisher_ucb'"
+            )
+        self.reuse_power = float(reuse_power)
+        if not 0.0 < self.reuse_power <= 1.0:
+            raise ValueError("reuse_power must be in (0, 1]")
+        self.candidate_pool = str(candidate_pool)
+        self.cluster_size = int(cluster_size)
+        if self.candidate_pool not in {"topk", "cluster"}:
+            raise ValueError("candidate_pool must be 'topk' or 'cluster'")
+        if self.candidate_pool == "cluster" and self.pair_strategy != "crp":
+            raise ValueError(
+                "candidate_pool='cluster' requires pair_strategy='crp'"
+            )
+        if self.candidate_pool == "cluster" and self.cluster_size < 2:
+            raise ValueError("cluster_size must be >= 2")
+        self.cluster_assign = []
         self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))  # spk -> recent detached emb (D,)
         self.pair_col = {}            # frozenset({s,j}) -> col (PERSISTENT, never reassigned)
         self.col_pair = {}            # inverse map used by DDP tensor reductions
@@ -90,6 +107,80 @@ class PersistentSynthState:
         self.activated_cols = set()   # columns used this epoch (reset each epoch)
         self._reset_pending()
         self.last_stats = self._empty_stats()
+
+    @staticmethod
+    @torch.no_grad()
+    def _spherical_kmeans(points, num_clusters, iters=20, seed=0):
+        """Deterministic cosine k-means over unit prototype rows."""
+        points = F.normalize(
+            points.detach().to(dtype=torch.float32, device="cpu"), dim=1
+        )
+        num_points = points.size(0)
+        num_clusters = max(1, min(int(num_clusters), num_points))
+        generator = torch.Generator().manual_seed(int(seed))
+
+        first = int(torch.randint(num_points, (1,), generator=generator))
+        centers = [points[first]]
+        for _ in range(1, num_clusters):
+            similarity = torch.stack(
+                [points @ center for center in centers], dim=1
+            ).max(dim=1).values
+            distance = (1.0 - similarity).clamp(min=0.0)
+            total = float(distance.sum())
+            probabilities = (
+                distance / total
+                if total > 0
+                else torch.full((num_points,), 1.0 / num_points)
+            )
+            index = int(torch.multinomial(
+                probabilities, 1, generator=generator
+            ))
+            centers.append(points[index])
+        centers = torch.stack(centers, dim=0)
+
+        assignment = None
+        for _ in range(max(1, int(iters))):
+            similarity = points @ F.normalize(centers, dim=1).t()
+            new_assignment = similarity.argmax(dim=1)
+            if assignment is not None and torch.equal(
+                    new_assignment, assignment):
+                break
+            assignment = new_assignment
+            for cluster in range(num_clusters):
+                members = points[assignment == cluster]
+                if members.size(0) == 0:
+                    served = similarity.max(dim=1).values
+                    centers[cluster] = points[int(served.argmin())]
+                else:
+                    centers[cluster] = members.mean(dim=0)
+        return [int(cluster) for cluster in assignment.tolist()]
+
+    def _cluster_candidates(self, prototype_rows, cosine):
+        """Return each anchor's top-k neighbours inside its natural cluster."""
+        num_clusters = max(1, round(self.num_real / self.cluster_size))
+        self.cluster_assign = self._spherical_kmeans(
+            prototype_rows, num_clusters
+        )
+        members = defaultdict(list)
+        for speaker, cluster in enumerate(self.cluster_assign):
+            members[cluster].append(speaker)
+
+        k = max(1, min(self.crp_topk, self.num_real - 1))
+        candidates = {}
+        for speaker in range(self.num_real):
+            neighbours = [
+                other for other in members[self.cluster_assign[speaker]]
+                if other != speaker
+            ]
+            if neighbours:
+                neighbours.sort(
+                    key=lambda other: float(cosine[speaker][other]),
+                    reverse=True,
+                )
+                candidates[speaker] = neighbours[:k]
+            else:
+                candidates[speaker] = [self.spk_partner[speaker]]
+        return candidates
 
     @torch.no_grad()
     def rebuild_pairing(self, W):
@@ -117,11 +208,21 @@ class PersistentSynthState:
         }
         self.col_pair = {col: key for key, col in self.pair_col.items()}
 
+        if self.pair_strategy == "crp" and self.candidate_pool == "cluster":
+            per_anchor = self._cluster_candidates(Wn.t(), cos)
+        else:
+            per_anchor = None
+            self.cluster_assign = []
+
         all_candidate_keys = set()
         for s in range(self.num_real):
             partners = [self.spk_partner[s]]
             if self.pair_strategy == "crp":
-                partners = [int(j) for j in topk_idx[s]]
+                partners = (
+                    [int(j) for j in per_anchor[s]]
+                    if per_anchor is not None
+                    else [int(j) for j in topk_idx[s]]
+                )
             for j in partners:
                 key = self._key(s, j)
                 all_candidate_keys.add(key)
@@ -222,8 +323,15 @@ class PersistentSynthState:
                     self._serialise_key(key),
                 ),
             )
-        weights = [max(1, self.pair_visits[key]) for key in keys]
+        weights = [self._reuse_mass(key) for key in keys]
         return random.choices(keys, weights=weights, k=1)[0]
+
+    def _reuse_mass(self, key):
+        """Occupancy mass used by create-vs-reuse and reusable-class sampling."""
+        visits = float(max(1, self.pair_visits[key]))
+        if self.reuse_policy == "powered":
+            return visits ** self.reuse_power
+        return visits
 
     def select_pair(self, s):
         """Choose a synthetic pair for anchor speaker s.
@@ -253,8 +361,8 @@ class PersistentSynthState:
         novel = [k for k in assigned if k not in self.created_pairs]
 
         if existing and novel:
-            local_visits = sum(max(1, self.pair_visits[k]) for k in existing)
-            p_new = self.crp_alpha / (local_visits + self.crp_alpha)
+            existing_mass = sum(self._reuse_mass(key) for key in existing)
+            p_new = self.crp_alpha / (existing_mass + self.crp_alpha)
             choose_new = random.random() < p_new
         else:
             choose_new = bool(novel)
@@ -476,6 +584,10 @@ class PersistentSynthState:
             "crp_alpha": self.crp_alpha,
             "crp_topk": self.crp_topk,
             "reuse_policy": self.reuse_policy,
+            "reuse_power": self.reuse_power,
+            "candidate_pool": self.candidate_pool,
+            "cluster_size": self.cluster_size,
+            "cluster_assign": [int(cluster) for cluster in self.cluster_assign],
             "bank": {
                 int(spk): [emb.detach().cpu() for emb in queue]
                 for spk, queue in self.bank.items()
@@ -525,6 +637,14 @@ class PersistentSynthState:
         self.crp_alpha = float(state.get("crp_alpha", self.crp_alpha))
         self.crp_topk = int(state.get("crp_topk", self.crp_topk))
         self.reuse_policy = state.get("reuse_policy", self.reuse_policy)
+        self.reuse_power = float(state.get("reuse_power", self.reuse_power))
+        self.candidate_pool = state.get(
+            "candidate_pool", self.candidate_pool
+        )
+        self.cluster_size = int(state.get("cluster_size", self.cluster_size))
+        self.cluster_assign = [
+            int(cluster) for cluster in state.get("cluster_assign", [])
+        ]
 
         self.bank = defaultdict(lambda: deque(maxlen=self.bank_size))
         for spk, queue in state.get("bank", {}).items():
