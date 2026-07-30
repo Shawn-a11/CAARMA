@@ -4,11 +4,11 @@
 - Branch: `exp/ablation-cluster-random4-slerp-projection-persistent-synth-ddp`
 - Method commit: `bccb24e`
 - Evaluation protocol: official VoxCeleb1 `veri_test2`
-- Training progress at record time: epoch 14 of 30
-- Best epoch so far: **12**
-- Best cosine EER so far: **3.64%**
-- cosine minDCF at 1e-2: **0.3940**
-- cosine minDCF at 1e-3: **0.5352**
+- Training progress at record time: epoch 19 of 30, step 330 of 744
+- Best epoch so far: **18**
+- Best cosine EER so far: **3.52%**
+- cosine minDCF at 1e-2: pending for the epoch-18 checkpoint
+- cosine minDCF at 1e-3: pending for the epoch-18 checkpoint
 - Status: provisional; training in progress
 - Recorded: 2026-07-30
 
