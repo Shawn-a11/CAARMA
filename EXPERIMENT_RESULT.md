@@ -4,10 +4,10 @@
 - Branch: `exp/control-corrected-projection-mlpd-crp-persistent-synth-ddp`
 - Method commit: `4adcc3b`
 - Evaluation protocol: official VoxCeleb1 `veri_test2`
-- Best epoch: historical record; exact epoch unavailable
-- Best cosine EER: **3.61%**
-- cosine minDCF at 1e-2: unavailable; original local log was removed
-- cosine minDCF at 1e-3: unavailable; original local log was removed
+- Best epoch: **12**
+- Best cosine EER: **3.52%**
+- cosine minDCF at 1e-2: **0.3840**
+- cosine minDCF at 1e-3: **0.5325**
 - Status: valid historical PPU baseline
 - Recorded: 2026-07-30
 
@@ -19,5 +19,7 @@ control for testing parent-SLERP initialization in E1.
 
 ## Provenance
 
-This file stores a manually verified experiment summary only. Checkpoints,
-training logs, datasets, and generated outputs are intentionally not committed.
+This file stores the corrected manually verified historical summary. The
+original local log is no longer available, so the values are preserved from
+the previously reported result table. Checkpoints, logs, datasets, and
+generated outputs are intentionally not committed.
