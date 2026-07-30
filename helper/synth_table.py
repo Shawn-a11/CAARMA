@@ -89,9 +89,9 @@ class PersistentSynthState:
         self.cluster_candidate_seed = int(cluster_candidate_seed)
         if self.candidate_pool not in {"topk", "cluster"}:
             raise ValueError("candidate_pool must be 'topk' or 'cluster'")
-        if self.cluster_candidate_selection not in {"nearest", "random"}:
+        if self.cluster_candidate_selection not in {"nearest", "random", "all"}:
             raise ValueError(
-                "cluster_candidate_selection must be 'nearest' or 'random'"
+                "cluster_candidate_selection must be 'nearest', 'random', or 'all'"
             )
         if self.candidate_pool == "cluster" and self.pair_strategy != "crp":
             raise ValueError(
@@ -168,8 +168,9 @@ class PersistentSynthState:
 
         ``nearest`` is the E3 method: rank same-cluster speakers by cosine.
         ``random`` is the matched ablation: sample the same number of candidates
-        uniformly without replacement, removing only the within-cluster
-        nearest-neighbour ranking. Per-anchor seeds keep all DDP ranks aligned.
+        uniformly without replacement. ``all`` removes top-k entirely and uses
+        every same-cluster speaker as a candidate. Per-anchor seeds keep random
+        selection aligned across DDP ranks.
         """
         num_clusters = max(1, round(self.num_real / self.cluster_size))
         self.cluster_assign = self._spherical_kmeans(
@@ -192,7 +193,7 @@ class PersistentSynthState:
                         key=lambda other: float(cosine[speaker][other]),
                         reverse=True,
                     )
-                else:
+                elif self.cluster_candidate_selection == "random":
                     generator = torch.Generator().manual_seed(
                         self.cluster_candidate_seed + speaker
                     )
@@ -200,7 +201,11 @@ class PersistentSynthState:
                         len(neighbours), generator=generator
                     ).tolist()
                     neighbours = [neighbours[index] for index in order]
-                candidates[speaker] = neighbours[:k]
+                candidates[speaker] = (
+                    neighbours
+                    if self.cluster_candidate_selection == "all"
+                    else neighbours[:k]
+                )
             else:
                 candidates[speaker] = [self.spk_partner[speaker]]
         return candidates

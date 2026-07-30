@@ -118,6 +118,28 @@ class NaturalClusterCrpTest(unittest.TestCase):
             for speaker in range(weights.size(1))
         ))
 
+    def test_all_candidates_replace_topk_with_complete_cluster(self):
+        weights = _grouped_prototypes(groups=1, per_group=12)
+        state = self._state(
+            weights.size(1), cluster_size=12, topk=4,
+            cluster_candidate_selection="all",
+        )
+        state.rebuild_pairing(weights)
+
+        for speaker in range(weights.size(1)):
+            expected = {
+                other for other in range(weights.size(1))
+                if other != speaker
+                and state.cluster_assign[other]
+                == state.cluster_assign[speaker]
+            }
+            actual = {
+                state._other(key, speaker)
+                for key in state.candidate_pairs[speaker]
+            }
+            self.assertEqual(actual, expected)
+            self.assertGreater(len(actual), state.crp_topk)
+
     def test_default_topk_behavior_is_unchanged(self):
         weights = _grouped_prototypes()
         state = PersistentSynthState(

@@ -57,7 +57,7 @@ mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
 resume_from_checkpoint: "None"  # full Lightning resume: optimizer/scheduler/epoch/global_step + synth table
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_cluster_random4_slerp_projection_persistent_synth_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_pure_natural_cluster_slerp_projection_persistent_synth_ddp"
 title: "caarma_mfa"
 
 # ── Persistent synthetic classes ──────────────────────────────────────────
@@ -71,11 +71,11 @@ synth_max_factor: 4          # W_syn columns = synth_max_factor * num_spk
 synth_init: "slerp_parents"  # initialise each new W_syn[c] from its parent-prototype midpoint
 pair_strategy: "crp"         # "fixed_nn" = v1; "crp" = v2 create-vs-reuse sampling
 crp_alpha: 1.0               # larger -> create new synthetic pairs more often
-crp_topk: 4                  # new pairs are sampled from each anchor's top-k NN speakers
+crp_topk: 4                  # singleton-cluster fallback only; normal cluster candidates are not truncated
 reuse_policy: "popularity"   # corrected v2 control: CRP occupancy-weighted reuse, no Fisher/UCB
 reuse_power: 1.0             # only used when reuse_policy="powered"; 1.0 recovers standard CRP
-candidate_pool: "cluster"    # deterministic spherical clusters define compatible parent pools
-cluster_size: 8              # target mean cluster size when candidate_pool="cluster"
-cluster_candidate_selection: "random" # ablation: random-4 instead of cosine top-4 within each cluster
-cluster_candidate_seed: 1729 # fixed for reproducible, rank-consistent sampling; not tuned
+candidate_pool: "cluster"    # deterministic spherical clusters directly define parent pools
+cluster_size: 5              # target mean group size -> about four candidate partners per anchor
+cluster_candidate_selection: "all" # pure cluster: all same-cluster speakers, no within-cluster top-k
+cluster_candidate_seed: 1729 # retained for checkpoint compatibility; unused by "all"
 discriminator_type: "projection" # corrected CRP + explicit embedding-prototype compatibility
