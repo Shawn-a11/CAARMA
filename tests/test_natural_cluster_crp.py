@@ -21,7 +21,8 @@ def _grouped_prototypes(groups=4, per_group=4, dim=16, noise=0.05, seed=0):
 
 class NaturalClusterCrpTest(unittest.TestCase):
     @staticmethod
-    def _state(num_real, max_cols=64, cluster_size=4, topk=3):
+    def _state(num_real, max_cols=64, cluster_size=4, topk=3,
+               cluster_candidate_selection="nearest"):
         return PersistentSynthState(
             num_real=num_real,
             max_cols=max_cols,
@@ -29,6 +30,7 @@ class NaturalClusterCrpTest(unittest.TestCase):
             crp_topk=topk,
             candidate_pool="cluster",
             cluster_size=cluster_size,
+            cluster_candidate_selection=cluster_candidate_selection,
         )
 
     def test_constructor_validation(self):
@@ -44,6 +46,12 @@ class NaturalClusterCrpTest(unittest.TestCase):
             PersistentSynthState(
                 8, 16, pair_strategy="crp",
                 candidate_pool="cluster", cluster_size=1,
+            )
+        with self.assertRaises(ValueError):
+            PersistentSynthState(
+                8, 16, pair_strategy="crp",
+                candidate_pool="cluster",
+                cluster_candidate_selection="unknown",
             )
 
     def test_clustering_and_candidates_are_deterministic(self):
@@ -78,6 +86,38 @@ class NaturalClusterCrpTest(unittest.TestCase):
                 ]
                 self.assertTrue(same_cluster or not cluster_members)
 
+    def test_random_candidates_are_deterministic_and_not_cosine_ranked(self):
+        weights = _grouped_prototypes(groups=1, per_group=12)
+        nearest = self._state(
+            weights.size(1), cluster_size=12, topk=4,
+            cluster_candidate_selection="nearest",
+        )
+        first = self._state(
+            weights.size(1), cluster_size=12, topk=4,
+            cluster_candidate_selection="random",
+        )
+        second = self._state(
+            weights.size(1), cluster_size=12, topk=4,
+            cluster_candidate_selection="random",
+        )
+
+        nearest.rebuild_pairing(weights)
+        first.rebuild_pairing(weights)
+        second.rebuild_pairing(weights.clone())
+
+        self.assertEqual(
+            dict(first.candidate_pairs), dict(second.candidate_pairs)
+        )
+        self.assertTrue(any(
+            first.candidate_pairs[speaker]
+            != nearest.candidate_pairs[speaker]
+            for speaker in range(weights.size(1))
+        ))
+        self.assertTrue(all(
+            len(first.candidate_pairs[speaker]) == 4
+            for speaker in range(weights.size(1))
+        ))
+
     def test_default_topk_behavior_is_unchanged(self):
         weights = _grouped_prototypes()
         state = PersistentSynthState(
@@ -100,6 +140,8 @@ class NaturalClusterCrpTest(unittest.TestCase):
 
         self.assertEqual(restored.candidate_pool, "cluster")
         self.assertEqual(restored.cluster_size, 4)
+        self.assertEqual(restored.cluster_candidate_selection, "nearest")
+        self.assertEqual(restored.cluster_candidate_seed, 1729)
         self.assertEqual(restored.cluster_assign, state.cluster_assign)
 
     def test_cluster_reservations_receive_slerp_initialization(self):

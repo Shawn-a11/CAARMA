@@ -66,7 +66,9 @@ class PersistentSynthState:
 
     def __init__(self, num_real, max_cols, bank_size=10, pair_strategy="fixed_nn",
                  crp_alpha=1.0, crp_topk=4, reuse_policy="popularity",
-                 reuse_power=1.0, candidate_pool="topk", cluster_size=8):
+                 reuse_power=1.0, candidate_pool="topk", cluster_size=8,
+                 cluster_candidate_selection="nearest",
+                 cluster_candidate_seed=1729):
         self.num_real = int(num_real)
         self.max_cols = int(max_cols)
         self.bank_size = int(bank_size)
@@ -83,8 +85,14 @@ class PersistentSynthState:
             raise ValueError("reuse_power must be in (0, 1]")
         self.candidate_pool = str(candidate_pool)
         self.cluster_size = int(cluster_size)
+        self.cluster_candidate_selection = str(cluster_candidate_selection)
+        self.cluster_candidate_seed = int(cluster_candidate_seed)
         if self.candidate_pool not in {"topk", "cluster"}:
             raise ValueError("candidate_pool must be 'topk' or 'cluster'")
+        if self.cluster_candidate_selection not in {"nearest", "random"}:
+            raise ValueError(
+                "cluster_candidate_selection must be 'nearest' or 'random'"
+            )
         if self.candidate_pool == "cluster" and self.pair_strategy != "crp":
             raise ValueError(
                 "candidate_pool='cluster' requires pair_strategy='crp'"
@@ -156,7 +164,13 @@ class PersistentSynthState:
         return [int(cluster) for cluster in assignment.tolist()]
 
     def _cluster_candidates(self, prototype_rows, cosine):
-        """Return each anchor's top-k neighbours inside its natural cluster."""
+        """Return k candidates from each anchor's natural cluster.
+
+        ``nearest`` is the E3 method: rank same-cluster speakers by cosine.
+        ``random`` is the matched ablation: sample the same number of candidates
+        uniformly without replacement, removing only the within-cluster
+        nearest-neighbour ranking. Per-anchor seeds keep all DDP ranks aligned.
+        """
         num_clusters = max(1, round(self.num_real / self.cluster_size))
         self.cluster_assign = self._spherical_kmeans(
             prototype_rows, num_clusters
@@ -173,10 +187,19 @@ class PersistentSynthState:
                 if other != speaker
             ]
             if neighbours:
-                neighbours.sort(
-                    key=lambda other: float(cosine[speaker][other]),
-                    reverse=True,
-                )
+                if self.cluster_candidate_selection == "nearest":
+                    neighbours.sort(
+                        key=lambda other: float(cosine[speaker][other]),
+                        reverse=True,
+                    )
+                else:
+                    generator = torch.Generator().manual_seed(
+                        self.cluster_candidate_seed + speaker
+                    )
+                    order = torch.randperm(
+                        len(neighbours), generator=generator
+                    ).tolist()
+                    neighbours = [neighbours[index] for index in order]
                 candidates[speaker] = neighbours[:k]
             else:
                 candidates[speaker] = [self.spk_partner[speaker]]
@@ -587,6 +610,8 @@ class PersistentSynthState:
             "reuse_power": self.reuse_power,
             "candidate_pool": self.candidate_pool,
             "cluster_size": self.cluster_size,
+            "cluster_candidate_selection": self.cluster_candidate_selection,
+            "cluster_candidate_seed": self.cluster_candidate_seed,
             "cluster_assign": [int(cluster) for cluster in self.cluster_assign],
             "bank": {
                 int(spk): [emb.detach().cpu() for emb in queue]
@@ -642,6 +667,12 @@ class PersistentSynthState:
             "candidate_pool", self.candidate_pool
         )
         self.cluster_size = int(state.get("cluster_size", self.cluster_size))
+        self.cluster_candidate_selection = state.get(
+            "cluster_candidate_selection", self.cluster_candidate_selection
+        )
+        self.cluster_candidate_seed = int(state.get(
+            "cluster_candidate_seed", self.cluster_candidate_seed
+        ))
         self.cluster_assign = [
             int(cluster) for cluster in state.get("cluster_assign", [])
         ]

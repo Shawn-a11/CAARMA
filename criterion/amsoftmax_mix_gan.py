@@ -36,6 +36,8 @@ class amsoftmax_gan(nn.Module):
                  synth_max_factor=4, pair_strategy="fixed_nn", crp_alpha=1.0,
                  crp_topk=4, reuse_policy="popularity", synth_init="xavier",
                  reuse_power=1.0, candidate_pool="topk", cluster_size=8,
+                 cluster_candidate_selection="nearest",
+                 cluster_candidate_seed=1729,
                  **kwargs):
         super(amsoftmax_gan, self).__init__()
         self.m = margin
@@ -71,14 +73,18 @@ class amsoftmax_gan(nn.Module):
                                               reuse_policy=reuse_policy,
                                               reuse_power=reuse_power,
                                               candidate_pool=candidate_pool,
-                                              cluster_size=cluster_size)
+                                              cluster_size=cluster_size,
+                                              cluster_candidate_selection=cluster_candidate_selection,
+                                              cluster_candidate_seed=cluster_candidate_seed)
             print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f slerp_t=%.2f '
                   'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f '
                   'crp_topk=%d reuse_policy=%s reuse_power=%.3f '
-                  'candidate_pool=%s cluster_size=%d synth_init=%s'
+                  'candidate_pool=%s cluster_size=%d cluster_selection=%s '
+                  'cluster_seed=%d synth_init=%s'
                   % (self.m, self.s, self.slerp_t, self.max_cols,
                      synth_bank_size, pair_strategy, crp_alpha, crp_topk,
                      reuse_policy, reuse_power, candidate_pool, cluster_size,
+                     cluster_candidate_selection, cluster_candidate_seed,
                      self.synth_init))
         else:
             print('Initialised AM-Softmax (one-shot SLERP) m=%.3f s=%.3f slerp_t=%.2f'

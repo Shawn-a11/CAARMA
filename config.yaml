@@ -57,7 +57,7 @@ mixup: True
 embedding_dim: 192
 checkpoint_path: "None"
 resume_from_checkpoint: "None"  # full Lightning resume: optimizer/scheduler/epoch/global_step + synth table
-save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_natural_cluster_slerp_projection_persistent_synth_ddp"
+save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_cluster_random4_slerp_projection_persistent_synth_ddp"
 title: "caarma_mfa"
 
 # ── Persistent synthetic classes ──────────────────────────────────────────
@@ -76,4 +76,6 @@ reuse_policy: "popularity"   # corrected v2 control: CRP occupancy-weighted reus
 reuse_power: 1.0             # only used when reuse_policy="powered"; 1.0 recovers standard CRP
 candidate_pool: "cluster"    # deterministic spherical clusters define compatible parent pools
 cluster_size: 8              # target mean cluster size when candidate_pool="cluster"
+cluster_candidate_selection: "random" # ablation: random-4 instead of cosine top-4 within each cluster
+cluster_candidate_seed: 1729 # fixed for reproducible, rank-consistent sampling; not tuned
 discriminator_type: "projection" # corrected CRP + explicit embedding-prototype compatibility

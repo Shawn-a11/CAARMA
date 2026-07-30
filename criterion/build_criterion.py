@@ -15,6 +15,10 @@ def build_criterion(config):
                                   reuse_power=config.get('reuse_power', 1.0),
                                   candidate_pool=config.get('candidate_pool', 'topk'),
                                   cluster_size=config.get('cluster_size', 8),
+                                  cluster_candidate_selection=config.get(
+                                      'cluster_candidate_selection', 'nearest'),
+                                  cluster_candidate_seed=config.get(
+                                      'cluster_candidate_seed', 1729),
                                   synth_init=config.get('synth_init', 'xavier'))
     elif config['criterion'] == 'AMSoftmax':
         criterion = amsoftmax(embedding_dim=config['embedding_dim'], num_classes=config['num_spk'], m=0.2, s=30)
