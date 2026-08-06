@@ -514,6 +514,18 @@ def cli_main():
         default=None,
         help="Optional checkpoint directory override",
     )
+    parser.add_argument(
+        "--synth-max-factor",
+        type=int,
+        default=None,
+        help="Maximum synthetic/real class ratio for the controlled capacity sweep",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Reproducible experiment seed override",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -523,8 +535,23 @@ def cli_main():
         config["reuse_power"] = args.reuse_power
     if args.save_dir is not None:
         config["save_dir"] = args.save_dir
+    if args.synth_max_factor is not None:
+        if args.synth_max_factor <= 0:
+            raise ValueError("--synth-max-factor must be a positive integer")
+        config["synth_max_factor"] = args.synth_max_factor
+    if args.seed is not None:
+        config["seed"] = args.seed
+
+    seed_everything(int(config.get("seed", 42)), workers=True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Device: ", device)
+    print("seed: {}".format(config.get("seed", 42)))
+    print("synth_max_factor: {}".format(config["synth_max_factor"]))
+    print(
+        "max synthetic classes: {}".format(
+            int(config["synth_max_factor"]) * int(config["num_spk"])
+        )
+    )
     print("reuse_policy: {}".format(config.get("reuse_policy", "popularity")))
     print("reuse_power: {}".format(config.get("reuse_power", 1.0)))
     

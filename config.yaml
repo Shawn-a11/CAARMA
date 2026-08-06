@@ -59,6 +59,7 @@ checkpoint_path: "None"
 resume_from_checkpoint: "None"  # full Lightning resume: optimizer/scheduler/epoch/global_step + synth table
 save_dir: "/root/autodl-tmp/CAARMA/caarma_mfa_ckpts_natural_cluster_slerp_projection_persistent_synth_ddp"
 title: "caarma_mfa"
+seed: 42
 
 # ── Persistent synthetic classes ──────────────────────────────────────────
 # persistence: True  -> persistent synth-class table + learnable W_syn + memory
