@@ -68,6 +68,7 @@ persistence: True
 slerp_t: 0.5                 # SLERP interpolation coefficient (0.5 = midpoint)
 synth_bank_size: 10          # per-speaker embedding memory-bank depth (XBM-style)
 synth_max_factor: 4          # W_syn columns = synth_max_factor * num_spk
+synthetic_sample_ratio: 1.0  # generated embeddings / real embeddings per batch; not class capacity
 synth_init: "slerp_parents"  # initialise each new W_syn[c] from its parent-prototype midpoint
 pair_strategy: "crp"         # "fixed_nn" = v1; "crp" = v2 create-vs-reuse sampling
 crp_alpha: 1.0               # larger -> create new synthetic pairs more often

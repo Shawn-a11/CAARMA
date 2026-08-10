@@ -514,6 +514,15 @@ def cli_main():
         default=None,
         help="Optional checkpoint directory override",
     )
+    parser.add_argument(
+        "--synthetic-sample-ratio",
+        type=float,
+        default=None,
+        help=(
+            "Synthetic/real embedding count requested per batch. This does "
+            "not change synth_max_factor or the synthetic class capacity."
+        ),
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -523,10 +532,17 @@ def cli_main():
         config["reuse_power"] = args.reuse_power
     if args.save_dir is not None:
         config["save_dir"] = args.save_dir
+    if args.synthetic_sample_ratio is not None:
+        if args.synthetic_sample_ratio <= 0.0:
+            parser.error("--synthetic-sample-ratio must be greater than zero")
+        config["synthetic_sample_ratio"] = args.synthetic_sample_ratio
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Device: ", device)
     print("reuse_policy: {}".format(config.get("reuse_policy", "popularity")))
     print("reuse_power: {}".format(config.get("reuse_power", 1.0)))
+    print("synthetic_sample_ratio: {}".format(
+        config.get("synthetic_sample_ratio", 1.0)
+    ))
     
     dataloader = super_dataset(config)
 

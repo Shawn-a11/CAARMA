@@ -36,6 +36,7 @@ class amsoftmax_gan(nn.Module):
                  synth_max_factor=4, pair_strategy="fixed_nn", crp_alpha=1.0,
                  crp_topk=4, reuse_policy="popularity", synth_init="xavier",
                  reuse_power=1.0, candidate_pool="topk", cluster_size=8,
+                 synthetic_sample_ratio=1.0,
                  **kwargs):
         super(amsoftmax_gan, self).__init__()
         self.m = margin
@@ -49,6 +50,12 @@ class amsoftmax_gan(nn.Module):
 
         self.persistence = bool(persistence)
         self.slerp_t = float(slerp_t)
+        self.synthetic_sample_ratio = float(synthetic_sample_ratio)
+        if self.synthetic_sample_ratio <= 0.0:
+            raise ValueError(
+                "synthetic_sample_ratio must be greater than zero, got "
+                f"{self.synthetic_sample_ratio}"
+            )
         self.synth_init = str(synth_init)
         if self.synth_init not in ("xavier", "slerp_parents"):
             raise ValueError(f"Unknown synth_init: {self.synth_init!r}")
@@ -75,11 +82,12 @@ class amsoftmax_gan(nn.Module):
             print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f slerp_t=%.2f '
                   'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f '
                   'crp_topk=%d reuse_policy=%s reuse_power=%.3f '
-                  'candidate_pool=%s cluster_size=%d synth_init=%s'
+                  'candidate_pool=%s cluster_size=%d synth_init=%s '
+                  'synthetic_sample_ratio=%.3f'
                   % (self.m, self.s, self.slerp_t, self.max_cols,
                      synth_bank_size, pair_strategy, crp_alpha, crp_topk,
                      reuse_policy, reuse_power, candidate_pool, cluster_size,
-                     self.synth_init))
+                     self.synth_init, self.synthetic_sample_ratio))
         else:
             print('Initialised AM-Softmax (one-shot SLERP) m=%.3f s=%.3f slerp_t=%.2f'
                   % (self.m, self.s, self.slerp_t))
@@ -185,6 +193,24 @@ class amsoftmax_gan(nn.Module):
         return synthetic, y_mix, w_mix[:, :labelid]
 
     # -------------------------------------------------------- persistent (ON)
+    def _sample_anchor_indices(self, batch_size):
+        """Sample anchors to target the requested synthetic/real sample ratio.
+
+        Each full cycle visits every real row once in random order. Ratios above
+        one therefore request multiple independently selected synthetic pairs
+        per anchor, while ratios below one use an unbiased batch subset.
+        """
+        target = max(1, int(round(batch_size * self.synthetic_sample_ratio)))
+        if target == batch_size:
+            # Preserve the exact historical E3 selection order at ratio=1.0.
+            return list(range(batch_size))
+        anchors = []
+        if target > batch_size:
+            anchors.extend(range(batch_size))
+        while len(anchors) < target:
+            anchors.extend(torch.randperm(batch_size).tolist())
+        return anchors[:target]
+
     def _gen_persistent(self, x, label, update_state, selection=None):
         """SLERP of anchor and partner under fixed-NN or CRP pair selection.
 
@@ -202,7 +228,8 @@ class amsoftmax_gan(nn.Module):
 
         if selection is None:
             selection = []
-            for bi, s in enumerate(labels):
+            for bi in self._sample_anchor_indices(x.size(0)):
+                s = labels[bi]
                 key, col, j, event = state.select_pair(s)
                 if col is not None:
                     selection.append((bi, key, col, j, event, None))
