@@ -285,7 +285,9 @@ class Task(LightningModule):
             self.log('new_pair_rate', stats['new_pair_rate'], prog_bar=False, sync_dist=False)
             self.log('mean_visits_per_pair', stats['mean_visits_per_pair'], prog_bar=False, sync_dist=False)
             self.log('pair_visit_entropy', stats['pair_visit_entropy'], prog_bar=False, sync_dist=False)
-            self.log('Ns_over_B', stats['Ns_over_B'], prog_bar=False, sync_dist=False)
+            # Surface the achieved ratio: missing partner embeddings can make
+            # it lower than the configured synthetic_sample_ratio early on.
+            self.log('Ns_over_B', stats['Ns_over_B'], prog_bar=True, sync_dist=False)
             self.log('bank_hit_rate', stats['bank_hit_rate'], prog_bar=False, sync_dist=False)
             self.log('batch_hit_rate', stats['batch_hit_rate'], prog_bar=False, sync_dist=False)
             self.log('mean_fisher_ucb_reward', stats['mean_fisher_ucb_reward'], prog_bar=False, sync_dist=False)
