@@ -8,6 +8,7 @@
 - Based on branch/commit:
 - Supersedes:
 - Implementation branch:
+- Literature search date:
 
 ## Problem
 
@@ -31,8 +32,13 @@ or minDCF.
 
 ## Prior-Art Collision
 
-List the closest primary sources, the overlap, and the defensible novelty
-boundary.
+| Ref. | Prior method | Inherited element | Remaining gap | Proposed difference |
+|---|---|---|---|---|
+| [1] | | | | |
+
+Identify the closest primary source explicitly. State which part of the
+derivation is established by prior work and which part remains a project
+hypothesis. A collection of uncited links is insufficient.
 
 ## Minimal Decisive Experiment
 
@@ -69,3 +75,6 @@ values from multi-seed paper-level estimates.
 
 State exactly what the evidence supports and what must not be claimed.
 
+## References
+
+[1] Authors. "Paper title." Venue, year. <direct paper URL>.

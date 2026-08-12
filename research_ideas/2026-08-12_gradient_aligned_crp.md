@@ -8,6 +8,7 @@
 - Based on branch/commit: `researchstudio-method-ratio-plan` / `c1863f6`
 - Supersedes: none
 - Implementation branch: not created
+- Literature search date: 2026-08-12
 - Evidence level: theoretical proposal supported by completed negative controls;
   the proposed mechanism has not yet been run
 
@@ -103,8 +104,11 @@ $$
 $$
 
 The inner product therefore estimates the local contribution of the synthetic
-update to the real objective. Cosine normalization removes gradient-magnitude
-effects and makes the signal directional rather than another hardness score.
+update to the real objective. This first-order data-valuation principle is
+closely related to validation-gradient example reweighting [2], gradient-based
+subset matching [3], and recent gradient-aligned data selection [4]. Cosine
+normalization removes gradient-magnitude effects and makes the signal
+directional rather than another hardness score.
 
 This is a local first-order argument. It does not guarantee long-horizon EER
 improvement, so the alignment-to-loss-delta diagnostic is load-bearing.
@@ -124,16 +128,22 @@ improvement, so the alignment-to-loss-delta diagnostic is load-bearing.
 
 Gradient-based data valuation is established prior art. The defensible novelty
 is not the invention of gradient alignment. It is the decomposition of
-persistent synthetic-class creation and reuse in CAARMA, with reuse valued by
-its estimated contribution to the real-speaker objective.
+persistent synthetic-class creation and reuse in CAARMA [1], with reuse valued
+by its estimated contribution to the real-speaker objective.
 
-Closest sources:
+| Ref. | Prior method | Inherited element | Remaining gap | Proposed difference |
+|---|---|---|---|---|
+| [1] | CAARMA | embedding-space synthetic speaker classes and adversarial refinement | synthetic classes are dynamically constructed without real-objective-valued persistent reuse | maintain pseudo-class identities and separate CRP creation from utility-aware reuse |
+| [2] | Learning to Reweight Examples | example weights inferred from gradient directions relative to a clean validation objective | operates on ordinary training examples, not persistent synthetic identities | value revisitable pseudo-speaker classes inside a CRP registry |
+| [3] | GRAD-MATCH | use training or validation gradient matching for data subset selection | selects finite data subsets for efficient training | schedule persistent synthetic classes while retaining the original creation law |
+| [4] | GradAlign | prioritize data whose gradient aligns with a trusted objective | developed for LLM reinforcement learning problem selection | use speaker-classification gradients to value synthetic speaker reuse |
+| [5] | AutAuT | weight auxiliary tasks according to alignment with a primary-task gradient | auxiliary tasks are externally retrieved molecular labels | treat each persistent pseudo-speaker as an endogenous auxiliary micro-task |
+| [6] | CAGrad | formalizes harmful gradient conflict between objectives | modifies the joint optimization direction in multi-task learning | use conflict as a class-selection signal without changing the optimizer |
 
-- GRAD-MATCH: <https://proceedings.mlr.press/v139/killamsetty21a>
-- Learning to Reweight Examples for Robust Deep Learning:
-  <https://proceedings.mlr.press/v80/ren18a>
-- GradAlign: <https://arxiv.org/abs/2602.21492>
-- CAARMA: <https://arxiv.org/abs/2503.16718>
+The first-order alignment principle is inherited from [2-6]. The project
+hypothesis is that a persistent synthetic speaker class can be treated as a
+revisitable auxiliary micro-task and that CRP reuse, rather than the optimizer
+itself, is the correct intervention point.
 
 Literature novelty assessment: medium. The speaker-specific persistent
 pseudo-class formulation and controlled CRP decomposition must carry the claim.
@@ -216,3 +226,30 @@ Do not claim that gradient alignment is newly invented, that local alignment
 guarantees verification generalization, or that the method is universally
 better before testing multiple seeds and evaluation protocols.
 
+## References
+
+[1] Massa Baali, Xiang Li, Hao Chen, Syed Abdul Hannan, Rita Singh, and Bhiksha
+Raj. "CAARMA: Class Augmentation with Adversarial Mixup Regularization."
+Findings of the Association for Computational Linguistics: EMNLP, 2025.
+<https://aclanthology.org/2025.findings-emnlp.517/>.
+
+[2] Mengye Ren, Wenyuan Zeng, Bin Yang, and Raquel Urtasun. "Learning to
+Reweight Examples for Robust Deep Learning." ICML, 2018.
+<https://proceedings.mlr.press/v80/ren18a.html>.
+
+[3] Krishnateja Killamsetty, Durga S, Ganesh Ramakrishnan, Abir De, and Rishabh
+Iyer. "GRAD-MATCH: Gradient Matching Based Data Subset Selection for Efficient
+Deep Model Training." ICML, 2021.
+<https://proceedings.mlr.press/v139/killamsetty21a.html>.
+
+[4] Ningyuan Yang, Weihua Du, Weiwei Sun, Sean Welleck, and Yiming Yang.
+"GradAlign: Gradient-Aligned Data Selection for LLM Reinforcement Learning."
+arXiv, 2026. <https://arxiv.org/abs/2602.21492>.
+
+[5] Zhiqiang Zhong and Davide Mottin. "Automatic Auxiliary Task Selection and
+Adaptive Weighting Boost Molecular Property Prediction." NeurIPS, 2025.
+<https://proceedings.neurips.cc/paper_files/paper/2025/hash/61c2975281d60d3b1ce4cefc157d99df-Abstract-Conference.html>.
+
+[6] Bo Liu, Xingchao Liu, Xiaojie Jin, Peter Stone, and Qiang Liu.
+"Conflict-Averse Gradient Descent for Multi-task Learning." NeurIPS, 2021.
+<https://proceedings.neurips.cc/paper/2021/hash/9d27fdf2477ffbff837d73ef7ae23db9-Abstract.html>.

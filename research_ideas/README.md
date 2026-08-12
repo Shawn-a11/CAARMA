@@ -33,6 +33,24 @@ Before requesting acceptance, every candidate must show:
 9. **Kill criterion:** the outcome that terminates the direction.
 10. **Cost:** implementation risk, expected runtime, and required hardware.
 
+## Literature Requirement
+
+An idea cannot be accepted without literature grounding. Its review card and
+accepted document must:
+
+1. cite at least three relevant primary papers when the literature exists;
+2. include the closest prior method, not only broad background papers;
+3. state which equation or mechanism is inherited from prior work;
+4. state what is changed in CAARMA and why that change is not a duplicate;
+5. distinguish established theory from the project's new hypothesis;
+6. use numbered in-text citations and a complete `References` section with
+   title, authors, venue/year, and a direct paper link;
+7. record an explicit literature-search date because the collision assessment
+   may change as new work appears.
+
+A list of paper links without mapping each source to the proposed mechanism is
+not sufficient for acceptance.
+
 ## File Naming
 
 Accepted ideas use:
@@ -52,4 +70,4 @@ and link the records.
 - Best-observed results may be recorded, but must not replace mean and
   variability reporting.
 - A hyperparameter sweep is supporting analysis, not a standalone innovation.
-
+- Claims of novelty must be bounded by the closest cited prior work.
