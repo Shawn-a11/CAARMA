@@ -14,7 +14,7 @@ set -euo pipefail
 DATA_ROOT="${CAARMA_DATA_ROOT:-/ocean/projects/cis220031p/shared/raw/data}"
 cd "$DATA_ROOT"
 
-for dataset in VoxCeleb1 VoxCeleb2; do
+for dataset in VoxCeleb1; do
     echo "===== $dataset ROOT ====="
     if [[ ! -d "$dataset" ]]; then
         echo "$dataset does not exist"
@@ -36,7 +36,7 @@ for dataset in VoxCeleb1 VoxCeleb2; do
 done
 
 echo "===== TRIALS AND METADATA ====="
-find VoxCeleb1 VoxCeleb2 -maxdepth 7 -type f \
+find VoxCeleb1 -maxdepth 7 -type f \
     \( -iname "*veri*test*" -o -iname "*trial*" -o \
        -iname "*meta*.csv" -o -iname "*iden_split*" \) \
     -print 2>/dev/null || true

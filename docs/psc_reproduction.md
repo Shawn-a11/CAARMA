@@ -49,11 +49,11 @@ until this reproduction is resolved.
 The config uses 50 samples per GPU, matching the paper's implementation
 details. Four GPUs therefore produce an effective batch size of 200.
 
-Before rebuilding any dataset manifest, run
-`scripts/psc/recover_original_assets.slurm`. The public source hard-codes an
-original author directory under
-`/ocean/projects/cis220031p/mbaali/mixup`. Recovering the exact historical
-config, CSV, and trials is preferable to inferring a replacement split.
+The only permitted dataset source for this reproduction is
+`/ocean/projects/cis220031p/shared/raw/data/VoxCeleb1`. The branch does not
+inspect or depend on any other user's project directory. Dataset structure,
+trial resolution, and train/test separation are derived from this shared
+standard dataset and recorded by the audit tools.
 
 ## Required Environment
 
@@ -71,7 +71,6 @@ job if compute nodes cannot reach Hugging Face.
 mkdir -p /ocean/projects/cis220031p/sge2/logs
 
 sbatch --export=ALL scripts/psc/audit_voxceleb.slurm
-sbatch --export=ALL scripts/psc/recover_original_assets.slurm
 sbatch --export=ALL scripts/psc/create_environment.slurm
 sbatch --export=ALL scripts/psc/environment_smoke.slurm
 sbatch --export=ALL scripts/psc/prepare_vox1_manifest.slurm
