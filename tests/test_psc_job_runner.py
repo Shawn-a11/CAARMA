@@ -39,9 +39,9 @@ class PscJobRunnerTest(unittest.TestCase):
     def test_audit_script_is_allowed_and_production_requires_confirmation(self):
         audit = psc_job.REPO_ROOT / "scripts/psc/audit_voxceleb.slurm"
         metadata = psc_job.validate_script(audit, confirm_production=False)
-        self.assertEqual(metadata["partition"], "RM-shared")
+        self.assertEqual(metadata["partition"], "GPU-shared")
         self.assertFalse(metadata["production"])
-        self.assertEqual(metadata["maximum_su"], 4.0)
+        self.assertEqual(metadata["maximum_su"], 1.0)
 
         train = psc_job.REPO_ROOT / "scripts/psc/train_vox1.slurm"
         with self.assertRaises(PermissionError):

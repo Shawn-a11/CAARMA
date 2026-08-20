@@ -7,7 +7,7 @@
 - Approved input dataset:
   `/ocean/projects/cis220031p/shared/raw/data/VoxCeleb1`.
 - Approved user output prefix: `/ocean/projects/cis220031p/sge2/`.
-- Approved partitions: `RM-shared`, `GPU-shared`.
+- Approved partition: `GPU-shared`. This allocation has no RM QoS.
 - Maximum GPU-shared request: four GPUs.
 - Maximum job walltime: 48 hours.
 - V100/L40S cost estimate: one SU per GPU-hour; H100: two SU per GPU-hour.
@@ -19,10 +19,10 @@ reproduction skill.
 
 | Stage | Script | Resources | Advance condition |
 |---|---|---:|---|
-| Storage audit | `audit_voxceleb.slurm` | RM-shared CPU | standard train/eval/trial layout identified |
-| Environment create | `create_environment.slurm` | RM-shared CPU | installation exits zero |
+| Storage audit | `audit_voxceleb.slurm` | 1×V100-16 | standard train/eval/trial layout identified |
+| Environment create | `create_environment.slurm` | 1×V100-16 | installation exits zero |
 | Environment smoke | `environment_smoke.slurm` | 1×V100 | CUDA, Lightning, torchaudio, HuBERT cache pass |
-| Manifest prepare | `prepare_vox1_manifest.slurm` | RM-shared CPU | labels contiguous; no missing files or leakage |
+| Manifest prepare | `prepare_vox1_manifest.slurm` | 1×V100-16 | labels contiguous; no missing files or leakage |
 | Code smoke | `train_smoke.slurm` | 1×V100-32 | 12 source steps complete without runtime error |
 | Production | `train_vox1.slurm` | 4×V100-32 | explicit user approval after all prior summaries |
 

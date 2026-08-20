@@ -55,6 +55,10 @@ inspect or depend on any other user's project directory. Dataset structure,
 trial resolution, and train/test separation are derived from this shared
 standard dataset and recorded by the audit tools.
 
+The `cis220031p` allocation is GPU-only. Audit, environment creation, and
+manifest preparation therefore use `GPU-shared` with one `v100-16`; submitting
+them to `RM-shared` fails before execution with `Invalid qos specification`.
+
 ## Required Environment
 
 Source `scripts/psc/env.example` after replacing every placeholder. The

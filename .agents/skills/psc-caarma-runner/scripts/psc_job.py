@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_RUN_ROOT = Path("/ocean/projects/cis220031p/sge2/caarma_runs")
 ALLOWED_ACCOUNT = "cis220031p"
 REQUIRED_BRANCH = "exp/psc-bridges2-caarma-reproduction"
-ALLOWED_PARTITIONS = {"RM-shared", "GPU-shared"}
+ALLOWED_PARTITIONS = {"GPU-shared"}
 ALLOWED_PROJECT_PREFIXES = (
     "/ocean/projects/cis220031p/sge2/",
     "/ocean/projects/cis220031p/shared/raw/data",
