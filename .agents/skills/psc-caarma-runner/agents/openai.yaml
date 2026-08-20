@@ -1,0 +1,4 @@
+interface:
+  display_name: "PSC CAARMA Runner"
+  short_description: "Run and monitor CAARMA jobs on PSC Bridges-2"
+  default_prompt: "Manage this CAARMA experiment on PSC Bridges-2 through preflight, Slurm submission, queue monitoring, result collection, metric summarization, and safe cancellation."
