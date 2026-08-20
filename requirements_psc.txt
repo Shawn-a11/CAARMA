@@ -1,0 +1,12 @@
+# Install torch/torchaudio CUDA wheels separately before this file.
+asteroid-filterbanks==0.4.0
+librosa==0.10.0
+numpy==1.26.4
+pandas==1.5.3
+pytorch-lightning==2.5.0.post0
+PyYAML==6.0.2
+scikit-learn==1.3.2
+scipy==1.11.4
+soundfile==0.12.1
+speechbrain==1.0.3
+transformers==4.47.1

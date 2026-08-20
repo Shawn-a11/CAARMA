@@ -72,6 +72,7 @@ mkdir -p /ocean/projects/cis220031p/sge2/logs
 
 sbatch --export=ALL scripts/psc/audit_voxceleb.slurm
 sbatch --export=ALL scripts/psc/recover_original_assets.slurm
+sbatch --export=ALL scripts/psc/create_environment.slurm
 sbatch --export=ALL scripts/psc/environment_smoke.slurm
 sbatch --export=ALL scripts/psc/prepare_vox1_manifest.slurm
 sbatch --export=ALL scripts/psc/train_smoke.slurm
@@ -80,3 +81,10 @@ sbatch --export=ALL scripts/psc/train_vox1.slurm
 
 Do not add VoxCeleb2 or method changes until the VoxCeleb1 reproduction
 protocol and runtime are frozen.
+
+`requirements_psc.txt` replaces the public requirements file for this runtime.
+The public pins combine old NumPy with a much newer SciPy release and do not
+form a reliable Python 3.10 environment. The PSC file keeps the model/library
+generation close to the public repository while using mutually compatible
+scientific Python versions. PyTorch and torchaudio CUDA wheels are installed
+separately by `create_environment.slurm`.
