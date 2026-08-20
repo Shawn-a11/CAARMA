@@ -33,11 +33,38 @@ def infer_speaker_id(path: Path, root: Path, pattern: re.Pattern[str]) -> str | 
     return None
 
 
+def speakers_from_trials(path: Path, pattern: re.Pattern[str]) -> set[str]:
+    speakers = set()
+    with path.open(encoding="utf-8") as handle:
+        for line_number, raw in enumerate(handle, 1):
+            fields = raw.strip().split()
+            if not fields:
+                continue
+            if len(fields) != 3:
+                raise ValueError(
+                    f"Trial line {line_number} must contain LABEL PATH1 PATH2"
+                )
+            for value in fields[1:]:
+                speaker = next(
+                    (part for part in Path(value).parts if pattern.fullmatch(part)),
+                    None,
+                )
+                if speaker is None:
+                    raise ValueError(
+                        f"Could not infer speaker from trial line {line_number}: {value}"
+                    )
+                speakers.add(speaker)
+    if not speakers:
+        raise ValueError(f"No speakers found in trial file: {path}")
+    return speakers
+
+
 def build_manifest(
     sources: list[tuple[str, Path]],
     output: Path,
     speaker_pattern: str = r"id\d+",
     extensions: tuple[str, ...] = DEFAULT_EXTENSIONS,
+    exclude_speakers: set[str] | None = None,
 ) -> dict:
     pattern = re.compile(speaker_pattern)
     normalized_ext = {ext.lower() if ext.startswith(".") else f".{ext.lower()}"
@@ -46,6 +73,7 @@ def build_manifest(
     unresolved = []
     seen_paths = set()
     speaker_sources = defaultdict(set)
+    exclude_speakers = set(exclude_speakers or ())
 
     for source_name, root in sources:
         root = root.expanduser().resolve()
@@ -60,6 +88,8 @@ def build_manifest(
             if speaker_id is None:
                 if len(unresolved) < 20:
                     unresolved.append(str(resolved))
+                continue
+            if speaker_id in exclude_speakers:
                 continue
             speaker_sources[speaker_id].add(source_name)
             rows.append((str(resolved), speaker_id, source_name))
@@ -104,6 +134,8 @@ def build_manifest(
         "cross_source_speaker_count": len(overlap),
         "cross_source_speaker_examples": dict(list(sorted(overlap.items()))[:20]),
         "rows_sha256": digest.hexdigest(),
+        "excluded_speakers": sorted(exclude_speakers),
+        "excluded_speaker_count": len(exclude_speakers),
     }
     sidecar = output.with_suffix(output.suffix + ".json")
     sidecar.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -116,12 +148,23 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--speaker-regex", default=r"id\d+")
     parser.add_argument("--extension", action="append", dest="extensions")
+    parser.add_argument(
+        "--exclude-speakers-from-trials",
+        type=Path,
+        help="Exclude every speaker appearing in the supplied verification trials",
+    )
     args = parser.parse_args()
+    pattern = re.compile(args.speaker_regex)
+    excluded = (
+        speakers_from_trials(args.exclude_speakers_from_trials.resolve(), pattern)
+        if args.exclude_speakers_from_trials else set()
+    )
     report = build_manifest(
         args.source,
         args.output,
         speaker_pattern=args.speaker_regex,
         extensions=tuple(args.extensions or DEFAULT_EXTENSIONS),
+        exclude_speakers=excluded,
     )
     print(json.dumps(report, indent=2, sort_keys=True))
 

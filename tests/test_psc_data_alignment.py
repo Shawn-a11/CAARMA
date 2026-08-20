@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,7 +8,7 @@ import yaml
 
 from helper.config_utils import load_experiment_config
 from tools.audit_voxceleb_protocol import audit_protocol
-from tools.build_voxceleb_csv import build_manifest
+from tools.build_voxceleb_csv import build_manifest, speakers_from_trials
 
 
 class PscDataAlignmentTest(unittest.TestCase):
@@ -48,6 +49,22 @@ class PscDataAlignmentTest(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(protocol["train_speakers"], 2)
         self.assertEqual(protocol["trials"], 2)
+
+    def test_unified_wav_root_excludes_trial_speakers(self):
+        unified = self.root / "unified" / "wav"
+        for speaker in ("id0001", "id0002", "id1001", "id1002"):
+            path = unified / speaker / "video1" / "00001.wav"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        excluded = speakers_from_trials(self.trials, re.compile(r"id\d+"))
+        report = build_manifest(
+            [("vox1", unified)],
+            self.manifest,
+            exclude_speakers=excluded,
+        )
+        self.assertEqual(excluded, {"id1001", "id1002"})
+        self.assertEqual(report["speakers"], 2)
+        self.assertEqual(report["excluded_speaker_count"], 2)
 
     def test_protocol_audit_detects_train_test_leakage(self):
         build_manifest([("vox1", self.train_root)], self.manifest)

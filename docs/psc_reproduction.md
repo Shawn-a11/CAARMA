@@ -55,16 +55,20 @@ inspect or depend on any other user's project directory. Dataset structure,
 trial resolution, and train/test separation are derived from this shared
 standard dataset and recorded by the audit tools.
 
+The shared copy uses one unified `VoxCeleb1/wav` directory. The manifest job
+downloads the cleaned VoxCeleb1-O trial list from OpenSLR, extracts its test
+speaker IDs, and excludes them while building the 1,211-speaker training
+manifest. The same unified `wav` directory is used as the evaluation root.
+
 The `cis220031p` allocation is GPU-only. Audit, environment creation, and
 manifest preparation therefore use `GPU-shared` with one `v100-16`; submitting
 them to `RM-shared` fails before execution with `Invalid qos specification`.
 
 ## Required Environment
 
-Source `scripts/psc/env.example` after replacing every placeholder. The
-training source roots must contain only the intended training split. Do not
-point `CAARMA_VOX1_TRAIN_ROOT` at the whole dataset directory if that directory
-also contains VoxCeleb1 test audio.
+Source `scripts/psc/env.example`; it points both train discovery and evaluation
+to the unified `wav` directory. Test speakers are excluded deterministically
+from the official trial list before the manifest is accepted.
 
 The HuBERT model must be available in `CAARMA_HUBERT_CACHE` before a production
 job if compute nodes cannot reach Hugging Face.
