@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .softmax import softmax
-from .amsoftmax import amsoftmax
-
+# Optional legacy losses are not shipped in the public source snapshot.
+# AMSoftmaxGAN is imported directly by criterion/build_criterion.py.
+# from .softmax import softmax
+# from .amsoftmax import amsoftmax
