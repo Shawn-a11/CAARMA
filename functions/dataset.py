@@ -97,11 +97,12 @@ class Evaluation_Dataset(Dataset):
         return len(self.paths)
 
     def __getitem__(self, idx):
-        
-        waveform  = load_audio(self.root + self.paths[idx], -1)
+        relative_path = str(self.paths[idx]).lstrip("/\\")
+        resolved_path = os.path.normpath(os.path.join(self.root, relative_path))
+        waveform = load_audio(resolved_path, -1)
         sample = {
-            'waveform': torch.FloatTensor(waveform),
-            'path': os.path.join(self.root, self.paths[idx]),
+        'waveform': torch.FloatTensor(waveform),
+        'path': resolved_path,
             'lens': waveform.shape  # Add the waveform length to the sample
         }
         

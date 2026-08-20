@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.utils.spectral_norm as spectral_norm
 import torch.nn.functional as F
 from transformers import HubertModel, HubertConfig, Wav2Vec2Model
-from functions.attn_pooling import AttentivePooling
 
 class Adapter(nn.Module):
     def __init__(self, input_dim, hidden_dim):

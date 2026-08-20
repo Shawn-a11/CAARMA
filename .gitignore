@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.pytest_cache/
+.coverage
+cache_dir/
+wandb/
+logs/
+checkpoints/
+*.ckpt
+org_inf_labels_*.txt
+org_inf_scores_*.txt

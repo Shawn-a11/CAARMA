@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 from copy import deepcopy
 from typing import Any, Union
+import os
 import torch.distributed as dist
 #from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.strategies import DDPStrategy
@@ -9,7 +10,6 @@ import random
 import torch
 import torch.nn as nn
 import numpy as np
-import yaml
 
 from pytorch_lightning import LightningModule, Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, EarlyStopping
@@ -23,11 +23,11 @@ from criterion.build_criterion import build_criterion
 from model.model_build import build_model
 from model.discriminator_mix import MixupDiscriminator
 from helper.mixup_avg import mixup_data_euc_avg
+from helper.config_utils import load_experiment_config
 
 from scipy.interpolate import interp1d
 from sklearn.metrics import roc_curve
 from scipy.optimize import brentq
-from pytorch_lightning.loggers import WandbLogger
 
 class Task(LightningModule):
     def __init__(self, features, model, loss, config, learning_rate=0.2, weight_decay=1.5e-6, 
@@ -48,7 +48,9 @@ class Task(LightningModule):
         self.automatic_optimization = False
         
         embedding_dim = self.config['embedding_dim']
-        self.discriminator = MixupDiscriminator(cache_dir="./cache_dir/").train()
+        self.discriminator = MixupDiscriminator(
+            cache_dir=self.config.get("hubert_cache_dir", "./cache_dir/")
+        ).train()
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device) 
         
         # Add hyperparameters for GAN training
@@ -75,7 +77,7 @@ class Task(LightningModule):
         elif loss_ratio < 0.5:
             self.lambda_adv = max(self.lambda_adv * 0.9, 0.0001)
         return self.lambda_adv
-    
+
     def training_step(self, batch, batch_idx):
         opt = self.optimizers()
         d_sch = self.lr_schedulers()
@@ -285,8 +287,14 @@ class Task(LightningModule):
         scores = []
         epsilon = 1e-8  # Small value to prevent division by zero
         for item in trials:
-            enroll_vector = eval_vectors[index_mapping[self.config['root'] + item[1]]]
-            test_vector = eval_vectors[index_mapping[self.config['root'] + item[2]]]
+            enroll_path = os.path.normpath(os.path.join(
+                self.config['root'], str(item[1]).lstrip("/\\")
+            ))
+            test_path = os.path.normpath(os.path.join(
+                self.config['root'], str(item[2]).lstrip("/\\")
+            ))
+            enroll_vector = eval_vectors[index_mapping[enroll_path]]
+            test_vector = eval_vectors[index_mapping[test_path]]
             with torch.cuda.amp.autocast():
                 score = enroll_vector.dot(test_vector.T)
                 denom = np.linalg.norm(enroll_vector) * np.linalg.norm(test_vector)
@@ -332,46 +340,69 @@ class Task(LightningModule):
         return min_dcf, min_c_det_threshold
     
     def on_validation_epoch_end(self):
-        num_gpus = torch.cuda.device_count()
-        eval_vectors = [None for _ in range(num_gpus)]
-        dist.all_gather_object(eval_vectors, self.eval_vectors)
-        eval_vectors = np.vstack(eval_vectors)
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+        vectors_by_rank = [None for _ in range(world_size)]
+        mappings_by_rank = [None for _ in range(world_size)]
+        if world_size > 1:
+            dist.all_gather_object(vectors_by_rank, self.eval_vectors)
+            dist.all_gather_object(mappings_by_rank, self.index_mapping)
+        else:
+            vectors_by_rank[0] = self.eval_vectors
+            mappings_by_rank[0] = self.index_mapping
 
-        table = [None for _ in range(num_gpus)]
-        dist.all_gather_object(table, self.index_mapping)
-
+        # batch_idx is local to each rank. Offset every rank-local mapping by
+        # the number of vectors gathered from preceding ranks.
         index_mapping = {}
-        for i in table:
-            index_mapping.update(i)
+        offset = 0
+        for rank_vectors, rank_mapping in zip(vectors_by_rank, mappings_by_rank):
+            for path, local_index in rank_mapping.items():
+                index_mapping[path] = offset + int(local_index)
+            offset += len(rank_vectors)
 
+        eval_vectors = np.vstack(vectors_by_rank)
         eval_vectors = eval_vectors - np.mean(eval_vectors, axis=0)
         labels, scores = self.similarity_score(self.trials, index_mapping, eval_vectors)
         EER, threshold = self.compute_eer(labels, scores)
-        with open('org_inf_labels_VOX_base_3.09.txt', 'w') as f:
-            for line in labels:
-                f.write(f"{line}\n")
-        with open('org_inf_scores_VOX_base_3.09.txt', 'w') as f:
-            for line in scores:
-                f.write(f"{line}\n")
-        print("\ncosine EER: {:.2f}% with threshold {:.2f}".format(EER*100, threshold))
-        self.log("cosine_eer", EER*100)
-        
-        minDCF, threshold = self.compute_minDCF(labels, scores, p_target=0.01)
-        print("cosine minDCF(10-2): {:.2f} with threshold {:.2f}".format(minDCF, threshold))
-        self.log("cosine_minDCF(10-2)", minDCF)
-        
-        minDCF, threshold = self.compute_minDCF(labels, scores, p_target=0.001)
-        print("cosine minDCF(10-3): {:.2f} with threshold {:.2f}".format(minDCF, threshold))
-        self.log("cosine_minDCF(10-3)", minDCF)
+        minDCF2, threshold2 = self.compute_minDCF(labels, scores, p_target=0.01)
+        minDCF3, threshold3 = self.compute_minDCF(labels, scores, p_target=0.001)
+
+        if self.trainer.is_global_zero:
+            score_dir = os.path.join(self.config['save_dir'], "scores")
+            os.makedirs(score_dir, exist_ok=True)
+            with open(os.path.join(score_dir, 'labels.txt'), 'w') as handle:
+                handle.writelines(f"{line}\n" for line in labels)
+            with open(os.path.join(score_dir, 'scores.txt'), 'w') as handle:
+                handle.writelines(f"{line}\n" for line in scores)
+            print("\ncosine EER: {:.2f}% with threshold {:.4f}".format(
+                EER * 100, threshold
+            ))
+            print("cosine minDCF(10-2): {:.4f} with threshold {:.4f}".format(
+                minDCF2, threshold2
+            ))
+            print("cosine minDCF(10-3): {:.4f} with threshold {:.4f}".format(
+                minDCF3, threshold3
+            ))
+
+        self.log("cosine_eer", EER * 100, sync_dist=True)
+        self.log("cosine_minDCF(10-2)", minDCF2, sync_dist=True)
+        self.log("cosine_minDCF(10-3)", minDCF3, sync_dist=True)
 
 def cli_main():
-    def load_config(config_file_path):
-        """Load the configuration from the file."""
-        with open(config_file_path) as file:
-            config = yaml.safe_load(file)
-        return config
+    parser = ArgumentParser()
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--mode", choices=("train", "validate"), default="train")
+    parser.add_argument("--checkpoint", default=None)
+    parser.add_argument("--devices", type=int, default=None)
+    parser.add_argument(
+        "--smoke-steps",
+        type=int,
+        default=0,
+        help="Run only N training steps and skip validation/checkpointing",
+    )
+    args = parser.parse_args()
 
-    config = load_config("/ocean/projects/cis220031p/mbaali/mixup/mixup_framework/config/config.yaml")
+    config = load_experiment_config(args.config)
+    seed_everything(int(config.get("seed", 42)), workers=True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Device: ", device)
     
@@ -385,70 +416,65 @@ def cli_main():
 
     final_project = Task(features, model, criterion, config, learning_rate = config['init_lr'], weight_decay=config['weight_decay'], batch_size = config['batch_size'], num_workers = config['num_workers'], max_epochs = config['epochs'], trial_path= config['trial_path'], warmup_step = config['warmup_step'])
     
-    if config['checkpoint_path'] != 'None':
-        state_dict = torch.load(config['checkpoint_path'], map_location="cpu")["state_dict"]
+    checkpoint_path = args.checkpoint or config.get('checkpoint_path', 'None')
+    if args.mode == "train" and checkpoint_path != 'None':
+        state_dict = torch.load(checkpoint_path, map_location="cpu")["state_dict"]
         # print(state_dict.keys())
         # model_state_dict = model.state_dict()
         # model_state_dict.update(state_dict)
         final_project.load_state_dict(state_dict, strict=False)
-        print("load weight from {}".format(config['checkpoint_path']))
+        print("load weight from {}".format(checkpoint_path))
         
     assert config['save_dir'] is not None
-    checkpoint_callback = ModelCheckpoint(monitor='cosine_eer', save_top_k=100,
-            filename="{epoch}_{cosine_eer:.2f}", dirpath=config['save_dir'])
-    lr_monitor = LearningRateMonitor(logging_interval='step')
-    wandb_logger = WandbLogger(
-        project='mixup',     # Change this to your W&B project name
-        name='weight_decay_100BS_alternate_syn',          # Change this to your desired experiment name
-        save_dir=config['save_dir']
+    checkpoint_callback = ModelCheckpoint(
+        monitor='cosine_eer',
+        save_top_k=int(config.get('save_top_k', 3)),
+        mode='min',
+        filename="{epoch}_{cosine_eer:.2f}",
+        dirpath=config['save_dir'],
+        save_last=True,
     )
-    wandb_logger.experiment.config.update(config)
+    lr_monitor = LearningRateMonitor(logging_interval='step')
 
-    AVAIL_GPUS = torch.cuda.device_count()
+    requested_devices = int(
+        args.devices if args.devices is not None
+        else config.get('devices', torch.cuda.device_count())
+    )
+    if requested_devices < 1:
+        raise ValueError(f"devices must be positive, got {requested_devices}")
+    strategy = (
+        DDPStrategy(find_unused_parameters=True, gradient_as_bucket_view=True)
+        if requested_devices > 1 else "auto"
+    )
+    smoke_mode = args.smoke_steps > 0
     trainer = Trainer(
-        strategy=DDPStrategy(find_unused_parameters=True, gradient_as_bucket_view=True),
-        # plugins=DDPPlugin(find_unused_parameters=False),
+        strategy=strategy,
         accelerator="gpu",
-        devices=-1,  # Use all available GPUs
+        devices=requested_devices,
+        num_nodes=int(config.get('num_nodes', 1)),
         max_epochs=config['epochs'],
-        logger=wandb_logger, 
-        num_sanity_val_steps=0,  # Adjust for faster debugging
+        logger=False,
+        num_sanity_val_steps=0,
         sync_batchnorm=True,
-        precision=16,  # Enable mixed precision training
-        callbacks=[checkpoint_callback, lr_monitor],
-        #     EarlyStopping(
-        #     monitor='cosine_eer',
-        #     patience=10,
-        #     mode='min',
-        #     min_delta=0.001
-        # )
-        #],
+        precision=config.get('precision', '16-mixed'),
+        callbacks=[] if smoke_mode else [checkpoint_callback, lr_monitor],
+        enable_checkpointing=not smoke_mode,
         default_root_dir=config['save_dir'],
         reload_dataloaders_every_n_epochs=1,
         accumulate_grad_batches=1,
         log_every_n_steps=25,
-        benchmark=True,  # Improved speed if input sizes don't change
-        deterministic=False,  # Better performance
-        # Add profiler for performance monitoring
-        profiler="simple",
-
+        benchmark=True,
+        deterministic=False,
+        max_steps=args.smoke_steps if smoke_mode else -1,
+        limit_val_batches=0 if smoke_mode else 1.0,
     )
-    #trainer.fit(final_project, datamodule=dataloader)
 
-    # if config.get('checkpoint_path'):
-    #     trainer.fit(
-    #         final_project, 
-    #         datamodule=dataloader, 
-    #         ckpt_path=config['checkpoint_path']
-    #     )
-    # else:
-
-    #     trainer.fit(final_project, datamodule=dataloader)
-    
-    #trainer.fit(final_project, datamodule=dataloader)
-    #print("\n--- Running Immediate Validation ---")
-    trainer.validate(final_project, datamodule=dataloader, ckpt_path=config['checkpoint_path'])
+    if args.mode == "train":
+        trainer.fit(final_project, datamodule=dataloader)
+    else:
+        if checkpoint_path == 'None':
+            raise ValueError("--mode validate requires --checkpoint or checkpoint_path")
+        trainer.validate(final_project, datamodule=dataloader, ckpt_path=checkpoint_path)
 
 if __name__ == "__main__":
     cli_main()
-    

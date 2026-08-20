@@ -1,6 +1,11 @@
 
 # CAARMA: Class Augmentation with Adversarial Mixup Regularization
 
+PSC Bridges-2 reproduction instructions are in
+[`docs/psc_reproduction.md`](docs/psc_reproduction.md). The PSC branch starts
+from the original public `main` implementation and keeps later CRP and
+persistent-class experiments out of the reproduction path.
+
 ## Abstract
 
 Speaker verification is a typical zero-shot learning task, where inference of unseen classes is performed by comparing embeddings of test instances to known examples. Models must naturally generate embeddings that **cluster same-class instances compactly while maintaining separation across classes**.  
