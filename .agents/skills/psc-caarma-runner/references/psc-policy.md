@@ -9,6 +9,8 @@
 - Approved user output prefix: `/ocean/projects/cis220031p/sge2/`.
 - Approved partition: `GPU-shared`. This allocation has no RM QoS.
 - Maximum GPU-shared request: four GPUs.
+- Maximum CPU allocation: five CPUs per requested GPU; use four per GPU for
+  CAARMA jobs.
 - Maximum job walltime: 48 hours.
 - V100/L40S cost estimate: one SU per GPU-hour; H100: two SU per GPU-hour.
 

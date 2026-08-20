@@ -22,7 +22,7 @@ epochs: 30
 weight_decay: 0.0000001
 warmup_step: 2000
 batch_size: 50
-num_workers: 8
+num_workers: 4
 second: 3
 do_augmentation: false
 num_spk: "auto"
