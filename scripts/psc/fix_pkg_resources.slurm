@@ -2,11 +2,11 @@
 #SBATCH --account=cis220031p
 #SBATCH --job-name=caarma-envfix
 #SBATCH --partition=GPU-shared
-#SBATCH --gpus=v100-32:1
+#SBATCH --gpus=v100-32:4
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
-#SBATCH --time=00:20:00
+#SBATCH --cpus-per-task=4
+#SBATCH --time=00:10:00
 #SBATCH --output=/ocean/projects/cis220031p/sge2/logs/%x-%j.out
 #SBATCH --error=/ocean/projects/cis220031p/sge2/logs/%x-%j.err
 

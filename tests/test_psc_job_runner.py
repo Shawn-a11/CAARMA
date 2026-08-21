@@ -72,7 +72,7 @@ Trainer.fit stopped: `max_steps=12` reached.
     def test_environment_fix_uses_available_gpu_and_frontend_probe(self):
         script = psc_job.REPO_ROOT / "scripts/psc/fix_pkg_resources.slurm"
         text = script.read_text()
-        self.assertIn("#SBATCH --gpus=v100-32:1", text)
+        self.assertIn("#SBATCH --gpus=v100-32:4", text)
         self.assertIn("setuptools==75.8.0", text)
         self.assertIn("Mel_Spectrogram()", text)
         self.assertIn("PSC audio frontend OK", text)
