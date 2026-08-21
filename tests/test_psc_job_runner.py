@@ -48,7 +48,7 @@ class PscJobRunnerTest(unittest.TestCase):
             psc_job.validate_script(train, confirm_production=False)
         production = psc_job.validate_script(train, confirm_production=True)
         self.assertEqual(production["gpu_count"], 4)
-        self.assertEqual(production["maximum_su"], 192.0)
+        self.assertEqual(production["maximum_su"], 48.0)
 
     def test_metric_parser_preserves_same_evaluation_dcf(self):
         text = """

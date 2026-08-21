@@ -22,7 +22,10 @@ import os
 import torch
 import torchaudio
 import pytorch_lightning as pl
+import pkg_resources
+import librosa.filters
 from transformers import HubertModel
+from feature.fbanks import Mel_Spectrogram
 
 print("torch:", torch.__version__)
 print("torchaudio:", torchaudio.__version__)
@@ -32,6 +35,9 @@ print("cuda available:", torch.cuda.is_available())
 print("gpu count:", torch.cuda.device_count())
 assert torch.cuda.is_available()
 assert torch.cuda.device_count() == 1
+
+Mel_Spectrogram()
+print("pkg_resources/librosa/Mel filterbank ready")
 
 cache_dir = os.environ["CAARMA_HUBERT_CACHE"]
 model = HubertModel.from_pretrained(
