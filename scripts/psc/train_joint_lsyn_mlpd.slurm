@@ -12,7 +12,8 @@
 
 set -euo pipefail
 
-REPO_ROOT=/jet/home/sge2/CAARMA
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE=/jet/home/sge2/caarma_psc_env.sh
 
 module load anaconda3
