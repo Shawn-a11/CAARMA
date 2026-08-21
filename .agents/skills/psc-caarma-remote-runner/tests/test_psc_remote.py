@@ -43,6 +43,11 @@ class PscRemoteTest(unittest.TestCase):
         with self.assertRaises(PermissionError):
             psc_remote.cmd_clean_generated(args)
 
+    def test_stage_requires_explicit_yes(self):
+        args = mock.Mock(yes=False)
+        with self.assertRaises(PermissionError):
+            psc_remote.cmd_stage(args)
+
     def test_submit_records_remote_job(self):
         stdout = "\n".join([
             "REPO=/jet/home/sge2/CAARMA",

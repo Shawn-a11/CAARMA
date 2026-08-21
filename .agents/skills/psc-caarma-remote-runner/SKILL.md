@@ -42,6 +42,9 @@ python3 "$REMOTE_RUNNER" --host bridges2 submit \
   --dry-run
 
 python3 "$REMOTE_RUNNER" --host bridges2 status --job-id JOB_ID
+python3 "$REMOTE_RUNNER" --host bridges2 stage \
+  --local-repo LOCAL_GIT_WORKTREE --ref COMMIT \
+  --remote-dir /jet/home/sge2/caarma_jobs/NAME-COMMIT --yes
 python3 "$REMOTE_RUNNER" --host bridges2 clean-generated \
   --repo REMOTE_REPO --yes
 python3 "$REMOTE_RUNNER" --host bridges2 adopt --job-id JOB_ID \
@@ -69,6 +72,7 @@ recover JobIDs and log paths.
 - Reject tracked dirty files unless `--allow-launcher-dirty` is explicit. This
   flag is for reviewed launcher-only patches, not method-code changes.
 - Do not delete repositories, worktrees, environments, logs or checkpoints.
+- `stage` creates a new commit snapshot and refuses to overwrite a target.
 - Keep official-test-selected metrics labeled as numerical reproduction.
 
 ## Failure handling

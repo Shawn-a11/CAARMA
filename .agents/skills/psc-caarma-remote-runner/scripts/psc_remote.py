@@ -148,14 +148,23 @@ script=$(realpath -m "$repo/$script_rel")
 case "$script" in "$repo"/scripts/psc/*) ;; *) exit 22 ;; esac
 test -f "$script"
 
-commit=$(git rev-parse --short HEAD)
-full_commit=$(git rev-parse HEAD)
+if [[ -d .git || -f .git ]]; then
+  commit=$(git rev-parse --short HEAD)
+  full_commit=$(git rev-parse HEAD)
+  dirty=$(git status --porcelain --untracked-files=no)
+elif [[ -f .caarma_commit ]]; then
+  full_commit=$(cat .caarma_commit)
+  commit=${full_commit:0:7}
+  dirty=""
+else
+  echo "ERROR=repo has neither Git metadata nor .caarma_commit" >&2
+  exit 22
+fi
 if [[ -n "$expected_commit" && "$full_commit" != "$expected_commit"* ]]; then
   echo "ERROR=expected commit $expected_commit, got $full_commit" >&2
   exit 23
 fi
 
-dirty=$(git status --porcelain --untracked-files=no)
 if [[ -n "$dirty" && "$allow_dirty" != yes ]]; then
   echo "ERROR=tracked dirty files require --allow-launcher-dirty" >&2
   echo "$dirty" >&2
@@ -387,6 +396,71 @@ def cmd_clean_generated(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_stage(args: argparse.Namespace) -> int:
+    if not args.yes:
+        raise PermissionError("stage requires --yes")
+    local_repo = Path(args.local_repo).expanduser().resolve()
+    if not (local_repo / ".git").exists():
+        raise ValueError(f"Not a Git worktree: {local_repo}")
+    remote_dir = validate_remote_path(args.remote_dir)
+    if not remote_dir.startswith(("/jet/home/sge2/", "/ocean/projects/cis220031p/sge2/")):
+        raise ValueError("Remote stage directory is outside approved PSC scope")
+    commit = subprocess.run(
+        ["git", "-C", str(local_repo), "rev-parse", f"{args.ref}^{{commit}}"],
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+    remote = (
+        "set -euo pipefail; "
+        f"target={shlex.quote(remote_dir)}; "
+        "test ! -e \"$target\"; mkdir -p \"$target\"; "
+        "tar -xf - -C \"$target\"; "
+        f"printf '%s\\n' {shlex.quote(commit)} > \"$target/.caarma_commit\"; "
+        "printf 'STAGED_DIR=%s\\n' \"$target\"; "
+        "printf 'STAGED_COMMIT=%s\\n' \"$(cat \"$target/.caarma_commit\")\""
+    )
+    ssh_command = [
+        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+        "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
+        args.host, remote,
+    ]
+    archive = subprocess.Popen(
+        ["git", "-C", str(local_repo), "archive", "--format=tar", commit],
+        stdout=subprocess.PIPE,
+    )
+    assert archive.stdout is not None
+    try:
+        transferred = subprocess.run(
+            ssh_command,
+            stdin=archive.stdout,
+            capture_output=True,
+            timeout=args.timeout,
+        )
+    finally:
+        archive.stdout.close()
+    archive_code = archive.wait()
+    if archive_code != 0 or transferred.returncode != 0:
+        detail = transferred.stderr.decode(errors="replace").strip()
+        raise RuntimeError(
+            f"PSC staging failed (archive={archive_code}, ssh={transferred.returncode}): {detail}"
+        )
+    payload = {
+        **parse_kv(transferred.stdout.decode(errors="replace")),
+        "local_repo": str(local_repo),
+        "ref": args.ref,
+        "staged_at_utc": utc_now(),
+    }
+    stage_root = STATE_ROOT.parent / "stages"
+    stage_root.mkdir(parents=True, exist_ok=True)
+    (stage_root / f"{commit[:12]}.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 METRIC_RE = re.compile(r"cosine EER:\s*([0-9.]+)%")
 DCF2_RE = re.compile(r"cosine minDCF\(10-2\):\s*([0-9.]+)")
 DCF3_RE = re.compile(r"cosine minDCF\(10-3\):\s*([0-9.]+)")
@@ -445,6 +519,13 @@ def build_parser() -> argparse.ArgumentParser:
     clean.add_argument("--repo", required=True)
     clean.add_argument("--yes", action="store_true")
     clean.set_defaults(func=cmd_clean_generated)
+
+    stage = sub.add_parser("stage")
+    stage.add_argument("--local-repo", required=True)
+    stage.add_argument("--ref", default="HEAD")
+    stage.add_argument("--remote-dir", required=True)
+    stage.add_argument("--yes", action="store_true")
+    stage.set_defaults(func=cmd_stage)
 
     submit = sub.add_parser("submit")
     submit.add_argument("--repo", required=True)
