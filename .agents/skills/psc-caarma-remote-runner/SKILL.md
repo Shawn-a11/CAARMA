@@ -20,6 +20,8 @@ Read [references/operations.md](references/operations.md) before first submissio
 
 1. Run `doctor`. Do not submit when non-interactive SSH is unavailable.
 2. Run `submit --dry-run` with the exact remote repo, script and expected commit.
+   If only tracked `__pycache__/*.pyc` files are dirty, use
+   `clean-generated --repo REMOTE_REPO --yes`; it refuses every other path.
 3. For four-GPU jobs, require `--confirm-production`.
 4. Submit one approved stage and report JobID, repo, commit, GPUs, walltime,
    maximum SU, dependency, and log paths.
@@ -40,6 +42,8 @@ python3 "$REMOTE_RUNNER" --host bridges2 submit \
   --dry-run
 
 python3 "$REMOTE_RUNNER" --host bridges2 status --job-id JOB_ID
+python3 "$REMOTE_RUNNER" --host bridges2 clean-generated \
+  --repo REMOTE_REPO --yes
 python3 "$REMOTE_RUNNER" --host bridges2 adopt --job-id JOB_ID \
   --repo REMOTE_REPO --commit COMMIT --job-name JOB_NAME \
   --output STDOUT_PATH --error STDERR_PATH

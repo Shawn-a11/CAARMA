@@ -223,6 +223,32 @@ if [[ -f "$path" ]]; then tail -n "$lines" "$path"; else echo "LOG_NOT_CREATED=$
 '''
 
 
+CLEAN_GENERATED_SCRIPT = r'''
+set -euo pipefail
+repo=$1
+approved=$2
+case "$repo" in
+  /jet/home/sge2/*|/ocean/projects/cis220031p/sge2/*) ;;
+  *) exit 40 ;;
+esac
+cd "$repo"
+mapfile -t rows < <(git status --porcelain --untracked-files=no)
+paths=()
+for row in "${rows[@]}"; do
+  path=${row:3}
+  case "$path" in
+    */__pycache__/*.pyc) paths+=("$path") ;;
+    *) echo "ERROR=refusing non-generated tracked path: $path" >&2; exit 41 ;;
+  esac
+done
+if (( ${#paths[@]} == 0 )); then echo "CLEANED=0"; exit 0; fi
+if [[ "$approved" != yes ]]; then echo "ERROR=clean-generated requires --yes" >&2; exit 42; fi
+git restore -- "${paths[@]}"
+echo "CLEANED=${#paths[@]}"
+git status --porcelain --untracked-files=no
+'''
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     result = ssh_run(args.host, DOCTOR_SCRIPT, timeout=args.timeout)
     payload = parse_kv(result.stdout)
@@ -347,6 +373,20 @@ def cmd_adopt(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_clean_generated(args: argparse.Namespace) -> int:
+    repo = validate_remote_path(args.repo)
+    if not args.yes:
+        raise PermissionError("clean-generated requires --yes")
+    result = ssh_run(
+        args.host,
+        CLEAN_GENERATED_SCRIPT,
+        [repo, "yes"],
+        timeout=args.timeout,
+    )
+    print(result.stdout, end="")
+    return 0
+
+
 METRIC_RE = re.compile(r"cosine EER:\s*([0-9.]+)%")
 DCF2_RE = re.compile(r"cosine minDCF\(10-2\):\s*([0-9.]+)")
 DCF3_RE = re.compile(r"cosine minDCF\(10-3\):\s*([0-9.]+)")
@@ -400,6 +440,11 @@ def build_parser() -> argparse.ArgumentParser:
     adopt.add_argument("--output", required=True)
     adopt.add_argument("--error", required=True)
     adopt.set_defaults(func=cmd_adopt)
+
+    clean = sub.add_parser("clean-generated")
+    clean.add_argument("--repo", required=True)
+    clean.add_argument("--yes", action="store_true")
+    clean.set_defaults(func=cmd_clean_generated)
 
     submit = sub.add_parser("submit")
     submit.add_argument("--repo", required=True)
