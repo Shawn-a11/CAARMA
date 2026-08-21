@@ -34,10 +34,23 @@ not silently imported from later experiment branches. If source-exact DDP
 hangs on Bridges-2, that failure must be recorded before a separately named
 runtime-stability control is introduced.
 
+Production training uses `train_source_faithful.py`, ported from the previously
+completed `exp/ddp-4gpu-v100-source_code@1c860a3` runtime. It preserves the
+public source schedule while carrying the already validated multi-optimizer
+DDP protections: optimizer toggling, encoder no-grad during D updates, a fresh
+encoder forward during M updates, one concatenated discriminator forward,
+frozen/ignored HuBERT backbone parameters, rank-offset validation gathering,
+and `16-mixed` precision. The original `train.py` remains for provenance but is
+not the PSC production entrypoint.
+
 The public source and paper disagree on several hyperparameters and update
 rules. See [`source_paper_discrepancies.md`](source_paper_discrepancies.md).
 The first production arm preserves the public source training state machine;
 later discrepancy arms must change one item at a time.
+
+Runtime parity with the previously completed four-GPU source-faithful branch is
+documented in
+[`source_faithful_runtime_parity.md`](source_faithful_runtime_parity.md).
 
 ## Current Scope
 

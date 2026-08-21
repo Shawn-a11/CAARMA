@@ -14,6 +14,7 @@ trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
 save_dir: "${CAARMA_RUN_ROOT}/caarma_original_vox1/checkpoints"
 hubert_cache_dir: "${CAARMA_HUBERT_CACHE}"
+hubert_model_name: "facebook/hubert-large-ls960-ft"
 
 USE_WANDB: false
 criterion: "AMSoftmaxGAN"

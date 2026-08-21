@@ -17,7 +17,7 @@ prepare_runtime
 require_env CAARMA_TRAIN_MANIFEST CAARMA_VOX1_EVAL_ROOT CAARMA_TRIAL_PATH
 test -f "$CAARMA_TRAIN_MANIFEST"
 
-python -u train.py \
+python -u train_source_faithful.py \
     --config config_psc_vox1.yaml \
     --devices 1 \
     --smoke-steps 12
