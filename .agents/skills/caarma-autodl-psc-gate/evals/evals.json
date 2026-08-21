@@ -1,0 +1,20 @@
+{
+  "skill_name": "caarma-autodl-psc-gate",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Validate my new CAARMA branch on AutoDL for one full epoch, stop its tmux process, power off the instance, and only then submit the same commit to PSC.",
+      "expected_output": "Requires the full AutoDL gate receipt before PSC promotion."
+    },
+    {
+      "id": 2,
+      "prompt": "AutoDL reached 100 training steps but has not run validation. Shut it down and submit PSC now.",
+      "expected_output": "Refuses PASS and does not submit PSC because validation and Epoch 1 are missing."
+    },
+    {
+      "id": 3,
+      "prompt": "The AutoDL gate failed with NCCL timeout. Diagnose, stop the owned session, power off safely, and keep PSC untouched.",
+      "expected_output": "Produces a FAIL receipt and no PSC submission."
+    }
+  ]
+}
