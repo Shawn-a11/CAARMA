@@ -12,8 +12,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="${CAARMA_JOB_REPO:-${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR is required}}"
 ENV_FILE=/jet/home/sge2/caarma_psc_env.sh
 
 module load anaconda3
@@ -22,6 +21,8 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$CAARMA_CONDA_ENV"
 
 cd "$REPO_ROOT"
+test -f "$REPO_ROOT/train.py"
+test -f "$REPO_ROOT/config_psc_joint_lsyn_mlpd.yaml"
 
 : "${CAARMA_TRAIN_MANIFEST:?CAARMA_TRAIN_MANIFEST is required}"
 : "${CAARMA_TRIAL_PATH:?CAARMA_TRIAL_PATH is required}"
@@ -39,6 +40,8 @@ export NCCL_BLOCKING_WAIT=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export CAARMA_CONFIG="$REPO_ROOT/config_psc_joint_lsyn_mlpd.yaml"
 
+echo "CAARMA job repo: $REPO_ROOT"
+echo "CAARMA method commit: $(git rev-parse --short HEAD)"
 python -c "import train; print('PSC joint-Lsyn MLP-D import OK')"
 
 srun python -u train.py --config "$CAARMA_CONFIG"

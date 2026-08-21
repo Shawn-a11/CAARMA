@@ -35,7 +35,9 @@ class PscJointLsynPortTest(unittest.TestCase):
             ROOT / "scripts/psc/train_joint_lsyn_mlpd.slurm"
         ).read_text()
         self.assertIn("#SBATCH --gpus=v100-32:4", script)
-        self.assertIn('REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"', script)
+        self.assertIn("SLURM_SUBMIT_DIR", script)
+        self.assertIn("CAARMA_JOB_REPO", script)
+        self.assertIn('test -f "$REPO_ROOT/train.py"', script)
         self.assertIn("srun python -u train.py", script)
         self.assertNotIn("train_source_faithful.py", script)
 
