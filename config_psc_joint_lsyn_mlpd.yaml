@@ -1,0 +1,30 @@
+# PSC runtime profile for the completed 3.61 joint-Lsyn MLP-D experiment.
+# Method settings match exp/innovation-joint-lsyn-ddp@3e5ef36.
+model: "MFA-CONFORMER"
+features: "Fbank"
+augmentations:
+  add_noise: false
+  add_reverb: false
+  drop_freq: false
+  drop_chunk: false
+
+dataset: "${CAARMA_TRAIN_MANIFEST}"
+trial_path: "${CAARMA_TRIAL_PATH}"
+root: "${CAARMA_VOX1_EVAL_ROOT}"
+save_dir: "${CAARMA_RUN_ROOT}/joint_lsyn_mlpd_361/checkpoints"
+
+USE_WANDB: false
+criterion: "AMSoftmaxGAN"
+init_lr: 0.001
+epochs: 30
+weight_decay: 0.0000001
+warmup_step: 2000
+batch_size: 50
+num_workers: 4
+second: 3
+do_augmentation: false
+num_spk: 1211
+mixup: true
+embedding_dim: 192
+checkpoint_path: "None"
+title: "joint_lsyn_mlpd_361_psc"
