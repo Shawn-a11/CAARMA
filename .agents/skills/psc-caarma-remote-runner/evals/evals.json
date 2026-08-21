@@ -1,0 +1,20 @@
+{
+  "skill_name": "psc-caarma-remote-runner",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "From my Mac Codex, check PSC job 44072499, show queue/accounting state and the last 100 log lines without starting compute on the login node.",
+      "expected_output": "Uses doctor/status/logs through guarded SSH and reports bounded output."
+    },
+    {
+      "id": 2,
+      "prompt": "Submit scripts/psc/train_vox1.slurm from /jet/home/sge2/CAARMA at commit ce5cd7e after environment job 44068576, but dry-run first and tell me GPUs, walltime, dependency and logs.",
+      "expected_output": "Runs guarded dry-run, verifies commit and requires production confirmation."
+    },
+    {
+      "id": 3,
+      "prompt": "The PSC training job failed. Collect sacct, stdout and stderr, classify the failure, but do not cancel, delete or resubmit anything.",
+      "expected_output": "Collects evidence first and makes no state-changing call."
+    }
+  ]
+}
