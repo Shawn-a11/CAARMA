@@ -115,14 +115,14 @@ class EnhancedResidualBlock(nn.Module):
 
 
 class MixupDiscriminator(nn.Module):
-    def __init__(self, hubert_model_name="facebook/hubert-large-ls960-ft", cache_dir="", proj_dim=256, emb_dim=192):
+    def __init__(self, hubert_model_name="facebook/hubert-large-ls960-ft", cache_dir="", proj_dim=256, emb_dim=192, freeze_hubert=True):
         super(MixupDiscriminator, self).__init__()
         self.hubert = HubertModel.from_pretrained(hubert_model_name, cache_dir=cache_dir)
 
-        # The source-faithful 4-GPU reference freezes HuBERT. Traversing the
-        # unused 315M-parameter backbone caused intermittent DDP deadlocks.
-        for parameter in self.hubert.parameters():
-            parameter.requires_grad = False
+        self.freeze_hubert = bool(freeze_hubert)
+        if self.freeze_hubert:
+            for parameter in self.hubert.parameters():
+                parameter.requires_grad = False
         
         # For speaker recognition, layers 7-12 are most informative for speaker characteristics
         hidden_size = self.hubert.config.hidden_size
