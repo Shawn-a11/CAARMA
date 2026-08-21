@@ -27,6 +27,12 @@ class PscRemoteTest(unittest.TestCase):
         self.assertEqual(payload["JOB_ID"], "44072499")
         self.assertEqual(payload["JOB_NAME"], "caarma-mlpd361")
 
+    def test_ssh_command_preserves_empty_arguments(self):
+        command = psc_remote.build_ssh_command(
+            "bridges2", ["repo", "script", "", "yes"]
+        )
+        self.assertEqual(command[-1], "bash -s -- repo script '' yes")
+
     def test_cancel_requires_explicit_yes(self):
         args = mock.Mock(job_id="44072499", yes=False, host="bridges2", timeout=5)
         with self.assertRaises(PermissionError):

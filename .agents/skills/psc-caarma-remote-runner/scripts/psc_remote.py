@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -44,6 +45,17 @@ def validate_remote_path(value: str, *, relative: bool = False) -> str:
     return value
 
 
+def build_ssh_command(host: str, args: list[str] | None = None) -> list[str]:
+    remote = "bash -s --"
+    if args:
+        remote += " " + " ".join(shlex.quote(value) for value in args)
+    return [
+        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+        "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
+        host, remote,
+    ]
+
+
 def ssh_run(
     host: str,
     script: str,
@@ -52,11 +64,7 @@ def ssh_run(
     timeout: int = 45,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    command = [
-        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
-        "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
-        host, "bash", "-s", "--", *(args or []),
-    ]
+    command = build_ssh_command(host, args)
     try:
         result = subprocess.run(
             command,
