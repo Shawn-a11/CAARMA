@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from copy import deepcopy
+import os
 from typing import Any, Union
 import torch.distributed as dist
 #from pytorch_lightning.plugins import DDPPlugin
@@ -390,11 +391,30 @@ class Task(LightningModule):
 def cli_main():
     def load_config(config_file_path):
         """Load the configuration from the file."""
-        with open(config_file_path) as file:
-            config = yaml.safe_load(file)
+        resolved_path = os.path.expandvars(config_file_path)
+        with open(resolved_path) as file:
+            config = yaml.safe_load(os.path.expandvars(file.read()))
+        unresolved = [
+            key for key, value in config.items()
+            if isinstance(value, str) and "${" in value
+        ]
+        if unresolved:
+            raise ValueError(
+                "Unresolved environment variables in config keys: "
+                + ", ".join(unresolved)
+            )
+        config["root"] = config["root"].rstrip("/\\") + "/"
         return config
 
-    config = load_config("/root/autodl-tmp/CAARMA/config.yaml")
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--config",
+        default="/root/autodl-tmp/CAARMA/config.yaml",
+        help="YAML experiment configuration",
+    )
+    args = parser.parse_args()
+
+    config = load_config(args.config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Device: ", device)
     
