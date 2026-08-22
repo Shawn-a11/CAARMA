@@ -7,19 +7,22 @@ Why this file exists
 Source code uses DDPStrategy + devices=-1 (multi-GPU); previous Algorithm-2-
 faithful DDP run plateaued at 3.48 % vs paper 3.09 %. To isolate whether the
 gap is from the practical training tricks the source repo carries beyond the
-paper's Algorithm 2 pseudocode, this branch restores every source behaviour
-we can verifiably enforce, while keeping the DDP fixes already proven needed.
+paper's Algorithm 2 pseudocode, this arm aligns every paper-stated training
+parameter — including removing the source's StepLR decay, which the paper
+does not specify — while keeping the DDP fixes already proven needed.
 
-Source-faithful restorations
-============================
-  1. pretrain_eps = 15  → first 15 epochs use lambda_adv = 0.0005 (weak adv.)
-  2. 5:1 G:D step ratio during pretrain; 1:1 cycle post-pretrain
-  3. d_loss / 2 and g_loss / 2  (source halves both; paper Eq.1/Eq.2 do not)
-  4. adjust_weight: cap lambda_adv at 0.01, floor 0.0001, only after pretrain
-  5. discriminator_optimizer lr = self.learning_rate * 0.01 (dynamic, halves
-     with StepLR)
-  6. Source's per-step state-machine counters (d_step_counter / g_step_counter)
-     preserved verbatim including the reset conditions
+Paper-exact parameter arm (exp/psc-paper-exact-repro-309)
+=========================================================
+This arm keeps the paper-aligned training loop (Algorithm 2: discriminator
+update then main-model update on every batch; unhalved L_D / L_G per paper
+Eq.1/Eq.2; dynamic lambda_adv from the L_real/L_G ratio with cap 0.01 /
+floor 0.0001; separate discriminator lr 2e-4; L_syn scaled by 1/num_spk)
+and removes the one remaining schedule deviation: the source repo's
+step-halving lr scheduler (step 4 epochs, gamma 0.5) on both optimizers. The paper (arXiv
+2503.16718, implementation details) specifies only AdamW lr 0.001 (model)
+and 2e-4 (discriminator), weight decay 1e-7 and a 2000-step linear warmup,
+with no learning-rate decay — both learning rates now stay constant after
+warmup.
 
 DDP-required deviations from source (cannot be avoided without re-debugging
 the deadlock root causes we already paid for)
@@ -47,7 +50,6 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning import LightningModule, Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import StepLR
 
 from feature.build_feature import build_feature
 from functions.loader import super_dataset
@@ -235,15 +237,8 @@ class Task(LightningModule):
             weight_decay=self.weight_decay,
             betas=(0.5, 0.999),
         )
-        embedding_scheduler = StepLR(embedding_optimizer, step_size=4, gamma=0.5)
-        discriminator_scheduler = StepLR(discriminator_optimizer, step_size=4, gamma=0.5)
-        return ([embedding_optimizer, discriminator_optimizer],
-                [embedding_scheduler, discriminator_scheduler])
-
-    def on_train_epoch_end(self):
-        main_scheduler, d_scheduler = self.lr_schedulers()
-        main_scheduler.step()
-        d_scheduler.step()
+        # Paper specifies warmup only; no lr decay on either optimizer.
+        return [embedding_optimizer, discriminator_optimizer]
 
     def on_test_epoch_start(self):
         return self.on_validation_epoch_start()
