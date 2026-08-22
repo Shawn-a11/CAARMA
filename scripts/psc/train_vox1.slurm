@@ -10,12 +10,30 @@
 #SBATCH --output=/ocean/projects/cis220031p/sge2/logs/%x-%j.out
 #SBATCH --error=/ocean/projects/cis220031p/sge2/logs/%x-%j.err
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=common.sh
-source "$SCRIPT_DIR/common.sh"
-prepare_runtime
-require_env CAARMA_TRAIN_MANIFEST CAARMA_VOX1_EVAL_ROOT CAARMA_TRIAL_PATH
+# Self-contained launcher: never self-locate via the script path, which
+# resolves to the Slurm spool directory under sbatch (see job 44074599).
+set -euo pipefail
+
+REPO_ROOT="${CAARMA_JOB_REPO:-${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR is required}}"
+module load anaconda3
+source /jet/home/sge2/caarma_psc_env.sh
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "$CAARMA_CONDA_ENV"
+cd "$REPO_ROOT"
+
+test -f train_source_faithful.py
+test -f config_psc_vox1.yaml
 test -f "$CAARMA_TRAIN_MANIFEST"
+test -f "$CAARMA_TRIAL_PATH"
+test -d "$CAARMA_VOX1_EVAL_ROOT"
+mkdir -p "$CAARMA_RUN_ROOT/caarma_original_vox1/checkpoints"
+
+export OMP_NUM_THREADS=4
+export TOKENIZERS_PARALLELISM=false
+export NCCL_BLOCKING_WAIT=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export XDG_CACHE_HOME="$CAARMA_RUN_ROOT/cache"
+mkdir -p "$XDG_CACHE_HOME"
 
 python -c "import train_source_faithful; print('CAARMA source-faithful import OK')"
 
@@ -31,6 +49,9 @@ model = HubertModel.from_pretrained(
 )
 print("HuBERT cache ready:", cache_dir, "hidden_size=", model.config.hidden_size)
 PY
+
+echo "CAARMA job repo: $REPO_ROOT"
+echo "CAARMA method commit: ${CAARMA_METHOD_COMMIT:-archive-snapshot}"
 
 # Lightning's SLURM launcher requires ntasks-per-node to match Trainer.devices.
 srun python -u train_source_faithful.py --config config_psc_vox1.yaml --devices 4
