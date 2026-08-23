@@ -44,7 +44,7 @@ snapshot 的 rank 偏移 bug。
 | JobID | 实验臂 | 分支 / commit | 数据 | 状态 | 日志 |
 |---|---|---|---|---|---|
 | 44235182 | 3.09 repro（调参） | `exp/psc-tuned-repro-309-vox1` @ `3afee15` | Vox1 | COMPLETED | `caarma-tuned-repro-309-44235182.{out,err}` |
-| 44255041 | 3.09 source-faithful + am_margin 0.25 / am_scale 32 | `exp/psc-source-faithful-margin025` @ `ff4e77f` | Vox1 | RUNNING | `caarma-vox1-44255041.{out,err}` |
+| 44255041 | 3.09 source-faithful + am_margin 0.25 / am_scale 32 | `exp/psc-source-faithful-margin025` @ `ff4e77f` | Vox1 | COMPLETED | `caarma-vox1-44255041.{out,err}` |
 | 44240592 | MLP-D joint-Lsyn dev-trial 选模 | `exp/psc-mlpd361-devsel` @ `?` | Vox1 | COMPLETED | `caarma-mlpd361-devsel-44240592.{out,err}` |
 | 44247839 | E0 Xavier control | `exp/psc-e0-xavier-control` @ `243233f` | Vox1 | COMPLETED | `caarma-e0-xavier-44247839.{out,err}` |
 | 44247840 | E1 SLERP initialization | `exp/psc-e1-slerp-init` @ `c25c2bf` | Vox1 | COMPLETED | `caarma-e1-slerpinit-44247840.{out,err}` |
@@ -92,7 +92,7 @@ snapshot 的 rank 偏移 bug。
 | JobID | 实验臂 | 已完成 epoch | 最新 EER / minDCF(10⁻²) / minDCF(10⁻³) |
 |---|---|---|---|
 | 44235182 | 3.09 repro（调参） | **COMPLETED**（Epoch 29） | **3.70%** / 0.3720 / 0.4251 |
-| 44255041 | 3.09 source-faithful + am_margin 0.25 / am_scale 32 | PENDING | — |
+| 44255041 | 3.09 source-faithful + am_margin 0.25 / am_scale 32 | COMPLETED（Epoch 29） | 3.60% / 0.3438 / 0.4402 |
 | 44240592 | MLP-D dev-trial 选模 | Epoch 20 | **0.19%** / 0.0351 / 0.0843 |
 | 44247839 | E0 Xavier control | Epoch 21 | 3.66% / 0.3571 / 0.4857 |
 | 44247840 | E1 SLERP initialization | Epoch 20 | 3.49% / 0.3441 / 0.3942 |
@@ -127,7 +127,7 @@ snapshot 的 rank 偏移 bug。
 | 11 | 44247839 | E0 Xavier control | **3.61%**（ep18） | 0.3638 / 0.4457 |
 | 12 | 44235182 | 3.09 repro（调参） | **3.65%**（ep24） | 0.3813 / 0.4280 |
 | — | 44189004 | 3.09 source-faithful 复现 | **~3.49%** | — |
-| — | 44255041 | 3.09 source-faithful + am_margin 0.25 / 32 | **3.58%**（ep23）*进行中* | 0.3502 / 0.4527 |
+| — | 44255041 | 3.09 source-faithful + am_margin 0.25 / 32 | **3.58%**（ep28） | 0.3367 / 0.4327 |
 
 > 44240592（MLP-D dev-trial 选模）best dev-trial EER 0.15%，但 Vox1-O final 3.91%，
 > 说明 dev-trial 口径与 Vox1-O 差距极大，不能混用。
@@ -224,12 +224,12 @@ discriminator 与状态机，但把超参改为 config 驱动，并限制在 Vox
 ## 归档文件
 
 - 所有 PSC runner collect 的原始 JSON 已同步到 `/Users/shawn/CAARMA/results_psc/`，
-  共 60 个文件（含成功、失败、被替换的作业）。主要 JobID 包括：
+  共 67 个文件（含成功、失败、被替换的作业）。主要 JobID 包括：
   - 2026-08-21：`44072499`、`44075531`、`44075532`
   - 2026-08-22：`44189004`、`44192117`、`44190687`、`44191580`、`44190693`
   - 2026-08-23 当前批次：`44235182`、`44240592`、`44247839–44247843`、
     `44247915`、`44247936`、`44247937`、`44247938`、`44247939`、`44247951`
-  - 3.09 调参新实验：`44255041`（RUNNING）
+  - 3.09 调参新实验：`44255041`（COMPLETED）
   - 被撤销 / 替换的早期尝试：`44235179–44235181`、`44244261`、`44244290`、`44244291`、
     `44244325–44244327`、`44244334–44244335`、`44244374–44244375`、`44244409`、
     `44245125–44245129`、`44245744–44245748`、`44245779–44245783`、`44245787`、

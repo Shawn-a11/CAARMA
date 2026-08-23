@@ -10,8 +10,22 @@
   "REPO": "/jet/home/sge2/caarma_jobs/source-faithful-margin025-ff4e77f",
   "SCRIPT": "scripts/psc/train_vox1.slurm",
   "WALLTIME": "12:00:00",
+  "best_eer_in_tail": 3.58,
+  "collected_at_utc": "2026-08-24T00:21:00+00:00",
   "job_id": "44255041",
+  "latest_min_dcf_1e2_in_tail": 0.3438,
+  "latest_min_dcf_1e3_in_tail": 0.4402,
   "ssh_host": "bridges2",
+  "status": {
+    "elapsed": "03:16:41",
+    "end": "2026-08-23T12:07:11",
+    "exit_code": "0:0",
+    "job_id": "44255041",
+    "job_name": "caarma-vox1",
+    "ssh_host": "bridges2",
+    "start": "2026-08-23T08:50:30",
+    "state": "COMPLETED"
+  },
   "submitted_at_utc": "2026-08-23T12:01:15.189383+00:00",
   "updated_at_utc": "2026-08-23T12:01:15.190602+00:00"
 }
