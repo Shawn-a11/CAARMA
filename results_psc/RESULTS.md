@@ -90,17 +90,17 @@ snapshot 的 rank 偏移 bug。
 
 | JobID | 实验臂 | 已完成 epoch | 最新 EER / minDCF(10⁻²) / minDCF(10⁻³) |
 |---|---|---|---|
-| 44235182 | 3.09 repro（调参） | Epoch 16 | 3.88% / 0.3875 / 0.4184 |
-| 44240592 | MLP-D dev-trial 选模 | Epoch 11 | 0.62% / 0.1138 / 0.2441 |
-| 44247839 | E0 Xavier control | Epoch 2 | 5.94% / 0.5041 / 0.6792 |
-| 44247840 | E1 SLERP initialization | Epoch 2 | 6.06% / 0.5141 / 0.6680 |
-| 44247841 | E2 Powered CRP β=0.75 | Epoch 2 | 6.05% / 0.5040 / 0.6259 |
-| 44247842 | Pure Natural-Cluster | Epoch 2 | 6.17% / 0.5444 / 0.7018 |
-| 44247843 | Powered CRP β=0.5 | Epoch 2 | 5.68% / 0.4934 / 0.5874 |
-| 44247915 | class-capacity ratio | Epoch 2 | 6.29% / 0.5077 / 0.6483 |
-| 44247936 | sample ratio | Epoch 2 | 5.86% / 0.5041 / 0.6298 |
-| 44247937 | Corrected Concat-D | Epoch 2 | 6.11% / 0.5103 / 0.6136 |
-| 44247938 | Q-shuffled | Epoch 2 | 6.16% / 0.5137 / 0.6937 |
+| 44235182 | 3.09 repro（调参） | Epoch 19 | **3.76%** / 0.3764 / 0.4232 |
+| 44240592 | MLP-D dev-trial 选模 | Epoch 12 | **0.54%** / 0.0860 / 0.2078 |
+| 44247839 | E0 Xavier control | Epoch 5 | 4.57% / 0.4294 / 0.5539 |
+| 44247840 | E1 SLERP initialization | Epoch 5 | 4.67% / 0.4175 / 0.5089 |
+| 44247841 | E2 Powered CRP β=0.75 | Epoch 5 | 4.48% / 0.4121 / 0.4651 |
+| 44247842 | Pure Natural-Cluster | Epoch 5 | 4.50% / 0.4404 / 0.5802 |
+| 44247843 | Powered CRP β=0.5 | Epoch 5 | 4.60% / 0.4466 / 0.6343 |
+| 44247915 | class-capacity ratio | Epoch 5 | 4.50% / 0.4087 / 0.5066 |
+| 44247936 | sample ratio | Epoch 5 | 4.33% / 0.4017 / 0.5245 |
+| 44247937 | Corrected Concat-D | Epoch 5 | 4.43% / 0.4034 / 0.5407 |
+| 44247938 | Q-shuffled | Epoch 5 | 4.64% / 0.4082 / 0.5055 |
 | 44247939 | Q-only | PENDING | — |
 | 44247951 | Cluster-Random-4 | PENDING | — |
 
