@@ -43,29 +43,42 @@ snapshot 的 rank 偏移 bug。
 
 | JobID | 实验臂 | 分支 / commit | 数据 | 状态 | 日志 |
 |---|---|---|---|---|---|
-| 44235182 | 3.09 repro（调参） | `exp/psc-tuned-repro-309-vox1` @ `3afee15` | Vox1 | RUNNING (01:14) | `caarma-tuned-repro-309-44235182.{out,err}` |
-| 44240592 | MLP-D joint-Lsyn dev-trial 选模 | `exp/psc-mlpd361-devsel` @ `?` | Vox1 | RUNNING (01:10) | `caarma-mlpd361-devsel-44240592.{out,err}` |
-| 44245744 | E0 Xavier control | `exp/psc-e0-xavier-control` @ `233dc18` | Vox1 | RUNNING | `caarma-e0-xavier-44245744.{out,err}` |
-| 44245745 | E1 SLERP initialization | `exp/psc-e1-slerp-init` @ `092cad5` | Vox1 | RUNNING | `caarma-e1-slerpinit-44245745.{out,err}` |
-| 44245746 | E2 Powered CRP β=0.75 | `exp/psc-e2-powered-crp-beta75` @ `0b7a44c` | Vox1 | RUNNING | `caarma-e2-powered75-44245746.{out,err}` |
-| 44245747 | Pure Natural-Cluster | `exp/psc-pure-natural-cluster` @ `7bb5cad` | Vox1 | RUNNING | `caarma-pure-natclust-44245747.{out,err}` |
-| 44245748 | Powered CRP β=0.5 | `exp/psc-powered-crp-beta05` @ `b46b696` | Vox1 | RUNNING | `caarma-powered-beta05-44245748.{out,err}` |
-| 44245779 | class-capacity ratio | `exp/psc-class-ratio` @ `fe7120c` | Vox1 | RUNNING | `caarma-class-ratio-44245779.{out,err}` |
-| 44245780 | sample ratio | `exp/psc-sample-ratio` @ `b8fb936` | Vox1 | RUNNING | `caarma-sample-ratio-44245780.{out,err}` |
-| 44245781 | Corrected Concat-D | `exp/psc-corrected-concat` @ `e8c7349` | Vox1 | RUNNING | `caarma-corrected-concat-44245781.{out,err}` |
-| 44246165 | Q-shuffled | `exp/psc-q-shuffled` @ `47664f8` | Vox1 | PENDING | `caarma-q-shuffled-44246165.{out,err}` |
-| 44246166 | Q-only | `exp/psc-q-only` @ `3d18eb4` | Vox1 | PENDING | `caarma-q-only-44246166.{out,err}` |
-| 44245787 | Cluster-Random-4 | `exp/psc-cluster-random4` @ `947021d` | Vox1 | RUNNING | `caarma-cluster-random4-44245787.{out,err}` |
+| 44235182 | 3.09 repro（调参） | `exp/psc-tuned-repro-309-vox1` @ `3afee15` | Vox1 | RUNNING (01:33) | `caarma-tuned-repro-309-44235182.{out,err}` |
+| 44240592 | MLP-D joint-Lsyn dev-trial 选模 | `exp/psc-mlpd361-devsel` @ `?` | Vox1 | RUNNING (01:29) | `caarma-mlpd361-devsel-44240592.{out,err}` |
+| 44247149 | E0 Xavier control | `exp/psc-e0-xavier-control` @ `743833c` | Vox1 | RUNNING | `caarma-e0-xavier-44247149.{out,err}` |
+| 44247150 | E1 SLERP initialization | `exp/psc-e1-slerp-init` @ `b2f95cc` | Vox1 | RUNNING | `caarma-e1-slerpinit-44247150.{out,err}` |
+| 44247151 | E2 Powered CRP β=0.75 | `exp/psc-e2-powered-crp-beta75` @ `9bfbcaf` | Vox1 | RUNNING | `caarma-e2-powered75-44247151.{out,err}` |
+| 44247159 | Pure Natural-Cluster | `exp/psc-pure-natural-cluster` @ `f6409ec` | Vox1 | RUNNING | `caarma-pure-natclust-44247159.{out,err}` |
+| 44247160 | Powered CRP β=0.5 | `exp/psc-powered-crp-beta05` @ `368f4f6` | Vox1 | RUNNING | `caarma-powered-beta05-44247160.{out,err}` |
+| 44247212 | class-capacity ratio | `exp/psc-class-ratio` @ `4986a7d` | Vox1 | RUNNING | `caarma-class-ratio-44247212.{out,err}` |
+| 44247256 | sample ratio | `exp/psc-sample-ratio` @ `18ec526` | Vox1 | RUNNING | `caarma-sample-ratio-44247256.{out,err}` |
+| 44247289 | Corrected Concat-D | `exp/psc-corrected-concat` @ `81d1ac9` | Vox1 | RUNNING | `caarma-corrected-concat-44247289.{out,err}` |
+| 44247290 | Q-shuffled | `exp/psc-q-shuffled` @ `5ee34ec` | Vox1 | RUNNING | `caarma-q-shuffled-44247290.{out,err}` |
+| 44247291 | Q-only | `exp/psc-q-only` @ `9d5b424` | Vox1 | RUNNING | `caarma-q-only-44247291.{out,err}` |
+| 44247307 | Cluster-Random-4 | `exp/psc-cluster-random4` @ `8f1e217` | Vox1 | RUNNING | `caarma-cluster-random4-44247307.{out,err}` |
+
+### 中期结果（已有 EER 的作业）
+
+| JobID | 实验臂 | 最新可见 EER / minDCF(10⁻²) / minDCF(10⁻³) | 最优 EER |
+|---|---|---|---|
+| 44235182 | 3.09 repro（调参） | 4.21% / 0.4004 / 0.4993 | **4.09%** |
+| 44240592 | MLP-D dev-trial 选模 | 1.53% / 0.2295 / 0.3584 | **1.53%** |
+
+> 其余 11 个创新臂刚修复 `dataset.py` 路径拼接 bug 后重新提交，尚未完成第一个 epoch 的 validation，
+> 暂无数值结果。
 
 ### 已撤销 / 替换
 
-- **44235179–44235181**（CRP persistent / Projection-D / Natural-Cluster Projection-D 重复提交）已撤销，
-  相关分支的修复版本见上表 44245744 起的新批次。
+- **44235179–44235181**（CRP persistent / Projection-D / Natural-Cluster Projection-D 重复提交）已撤销。
 - **44245125–44245129**（E0 / E1 / E2 / Pure Natural-Cluster / Powered-β0.5 首次修复提交）因 `train.py`
-  的 `load_config` 缩进错误在 3–6 秒内 FAILED；已修正缩进并重新提交为 44245744–44245748。
+  的 `load_config` 缩进错误在 3–6 秒内 FAILED；已修正缩进并重新提交为 44247149 起的新批次。
 - **44245782 / 44245783**（Q-shuffled / Q-only）启动后 FAILED：分支 `train.py` 未解析 `--config`，
   而是硬编码 `/root/autodl-tmp/CAARMA/config.yaml`。已改为 `ArgumentParser` 解析 `--config`，
-  重新提交为 44246165 / 44246166。
+  并随 `dataset.py` 修复一起重新提交。
+- **44245744–44245748 / 44245779–44245781 / 44245787 / 44246165 / 44246166**
+  在完成 Epoch 0 后的 validation 阶段 FAILED：根因是 `functions/dataset.py` 使用 `self.root + self.paths[idx]`，
+  当 root 无末尾 `/` 时路径被错误拼接成 `.../VoxCeleb1/wavidXXXX/...`，导致 torchaudio 打不开文件。
+  已修正为 `os.path.join(self.root, self.paths[idx])` 并重新提交为 44247149 起的新批次。
 
 ### 3.09 repro 调参锁定配方
 
