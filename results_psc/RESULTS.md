@@ -45,18 +45,18 @@ snapshot 的 rank 偏移 bug。
 |---|---|---|---|---|---|
 | 44235182 | 3.09 repro（调参） | `exp/psc-tuned-repro-309-vox1` @ `3afee15` | Vox1 | COMPLETED | `caarma-tuned-repro-309-44235182.{out,err}` |
 | 44255041 | 3.09 source-faithful + am_margin 0.25 / am_scale 32 | `exp/psc-source-faithful-margin025` @ `ff4e77f` | Vox1 | RUNNING | `caarma-vox1-44255041.{out,err}` |
-| 44240592 | MLP-D joint-Lsyn dev-trial 选模 | `exp/psc-mlpd361-devsel` @ `?` | Vox1 | RUNNING | `caarma-mlpd361-devsel-44240592.{out,err}` |
-| 44247839 | E0 Xavier control | `exp/psc-e0-xavier-control` @ `243233f` | Vox1 | RUNNING | `caarma-e0-xavier-44247839.{out,err}` |
-| 44247840 | E1 SLERP initialization | `exp/psc-e1-slerp-init` @ `c25c2bf` | Vox1 | RUNNING | `caarma-e1-slerpinit-44247840.{out,err}` |
-| 44247841 | E2 Powered CRP β=0.75 | `exp/psc-e2-powered-crp-beta75` @ `9ad4f2a` | Vox1 | RUNNING | `caarma-e2-powered75-44247841.{out,err}` |
-| 44247842 | Pure Natural-Cluster | `exp/psc-pure-natural-cluster` @ `2e3b0fc` | Vox1 | RUNNING | `caarma-pure-natclust-44247842.{out,err}` |
-| 44247843 | Powered CRP β=0.5 | `exp/psc-powered-crp-beta05` @ `844460d` | Vox1 | RUNNING | `caarma-powered-beta05-44247843.{out,err}` |
-| 44247915 | class-capacity ratio | `exp/psc-class-ratio` @ `372132e` | Vox1 | RUNNING | `caarma-class-ratio-44247915.{out,err}` |
-| 44247936 | sample ratio | `exp/psc-sample-ratio` @ `e3e6a41` | Vox1 | RUNNING | `caarma-sample-ratio-44247936.{out,err}` |
-| 44247937 | Corrected Concat-D | `exp/psc-corrected-concat` @ `8e17e4e` | Vox1 | RUNNING | `caarma-corrected-concat-44247937.{out,err}` |
-| 44247938 | Q-shuffled | `exp/psc-q-shuffled` @ `90b687f` | Vox1 | RUNNING | `caarma-q-shuffled-44247938.{out,err}` |
-| 44247939 | Q-only | `exp/psc-q-only` @ `014e3ad` | Vox1 | RUNNING | `caarma-q-only-44247939.{out,err}` |
-| 44247951 | Cluster-Random-4 | `exp/psc-cluster-random4` @ `1e0cea6` | Vox1 | RUNNING | `caarma-cluster-random4-44247951.{out,err}` |
+| 44240592 | MLP-D joint-Lsyn dev-trial 选模 | `exp/psc-mlpd361-devsel` @ `?` | Vox1 | COMPLETED | `caarma-mlpd361-devsel-44240592.{out,err}` |
+| 44247839 | E0 Xavier control | `exp/psc-e0-xavier-control` @ `243233f` | Vox1 | COMPLETED | `caarma-e0-xavier-44247839.{out,err}` |
+| 44247840 | E1 SLERP initialization | `exp/psc-e1-slerp-init` @ `c25c2bf` | Vox1 | COMPLETED | `caarma-e1-slerpinit-44247840.{out,err}` |
+| 44247841 | E2 Powered CRP β=0.75 | `exp/psc-e2-powered-crp-beta75` @ `9ad4f2a` | Vox1 | COMPLETED | `caarma-e2-powered75-44247841.{out,err}` |
+| 44247842 | Pure Natural-Cluster | `exp/psc-pure-natural-cluster` @ `2e3b0fc` | Vox1 | COMPLETED | `caarma-pure-natclust-44247842.{out,err}` |
+| 44247843 | Powered CRP β=0.5 | `exp/psc-powered-crp-beta05` @ `844460d` | Vox1 | COMPLETED | `caarma-powered-beta05-44247843.{out,err}` |
+| 44247915 | class-capacity ratio | `exp/psc-class-ratio` @ `372132e` | Vox1 | COMPLETED | `caarma-class-ratio-44247915.{out,err}` |
+| 44247936 | sample ratio | `exp/psc-sample-ratio` @ `e3e6a41` | Vox1 | COMPLETED | `caarma-sample-ratio-44247936.{out,err}` |
+| 44247937 | Corrected Concat-D | `exp/psc-corrected-concat` @ `8e17e4e` | Vox1 | COMPLETED | `caarma-corrected-concat-44247937.{out,err}` |
+| 44247938 | Q-shuffled | `exp/psc-q-shuffled` @ `90b687f` | Vox1 | COMPLETED | `caarma-q-shuffled-44247938.{out,err}` |
+| 44247939 | Q-only | `exp/psc-q-only` @ `014e3ad` | Vox1 | COMPLETED | `caarma-q-only-44247939.{out,err}` |
+| 44247951 | Cluster-Random-4 | `exp/psc-cluster-random4` @ `1e0cea6` | Vox1 | COMPLETED | `caarma-cluster-random4-44247951.{out,err}` |
 
 ### 中期结果（已有 EER 的作业）
 
@@ -107,6 +107,30 @@ snapshot 的 rank 偏移 bug。
 | 44247951 | Cluster-Random-4 | Epoch 2 | 5.85% / 0.5076 / 0.6645 |
 
 > 44240592 使用 dev-trial 口径，与 Vox1-O 主实验不直接可比。
+
+### 2026-08-23 批次最终结果（test-selected best EER）
+
+所有 Vox1-O 实验（除 dev-trial 外）均按 `cosine_eer` 选最优 3 个 checkpoint；下表取 30 epoch 内最低 EER：
+
+| 排名 | JobID | 实验臂 | 最优 EER（epoch） | 对应 minDCF(10⁻²) / minDCF(10⁻³) |
+|---|---|---|---|---|
+| 1 | 44247936 | sample ratio | **3.44%**（ep20） | 0.3618 / 0.4306 |
+| 2 | 44247915 | class-capacity ratio | **3.45%**（ep19） | 0.3583 / 0.4124 |
+| 3 | 44247840 | E1 SLERP initialization | **3.48%**（ep25） | 0.3268 / 0.4558 |
+| 4 | 44247951 | Cluster-Random-4 | **3.53%**（ep19） | 0.3577 / 0.4177 |
+| 5 | 44247939 | Q-only | **3.53%**（ep22） | 0.3629 / 0.4624 |
+| 6 | 44247937 | Corrected Concat-D | **3.53%**（ep27） | 0.3466 / 0.4223 |
+| 7 | 44247841 | E2 Powered CRP β=0.75 | **3.58%**（ep19） | 0.3591 / 0.4112 |
+| 8 | 44247938 | Q-shuffled | **3.57%**（ep21） | 0.3230 / 0.3726 |
+| 9 | 44247842 | Pure Natural-Cluster | **3.59%**（ep27） | 0.3643 / 0.5380 |
+| 10 | 44247843 | Powered CRP β=0.5 | **3.64%**（ep28） | 0.3696 / 0.4788 |
+| 11 | 44247839 | E0 Xavier control | **3.61%**（ep18） | 0.3638 / 0.4457 |
+| 12 | 44235182 | 3.09 repro（调参） | **3.65%**（ep24） | 0.3813 / 0.4280 |
+| — | 44189004 | 3.09 source-faithful 复现 | **~3.49%** | — |
+| — | 44255041 | 3.09 source-faithful + am_margin 0.25 / 32 | **3.58%**（ep23）*进行中* | 0.3502 / 0.4527 |
+
+> 44240592（MLP-D dev-trial 选模）best dev-trial EER 0.15%，但 Vox1-O final 3.91%，
+> 说明 dev-trial 口径与 Vox1-O 差距极大，不能混用。
 
 ### 已撤销 / 替换
 
