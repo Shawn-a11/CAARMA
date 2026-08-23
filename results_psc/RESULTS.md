@@ -129,6 +129,20 @@ snapshot 的 rank 偏移 bug。
 | — | 44189004 | 3.09 source-faithful 复现 | **~3.49%** | — |
 | — | 44255041 | 3.09 source-faithful + am_margin 0.25 / 32 | **3.58%**（ep28） | 0.3367 / 0.4327 |
 
+### 2026-08-24 批次：3.09 复现调参（已提交，运行中）
+
+基于 `exp/psc-source-faithful-repro-309` 单变量调参，目标继续缩小与论文 3.09% 的差距。
+
+| JobID | 分支 | commit | 变动 | 基线 best EER |
+|---|---|---|---|---|
+| 44271497 | `exp/psc-source-faithful-seed0` | `868901d` | `seed: 0` | 3.49（seed=42） |
+| 44271529 | `exp/psc-source-faithful-m018` | `db48b88` | `am_margin: 0.18` | 3.49（margin=0.20） |
+| 44271551 | `exp/psc-source-faithful-m022` | `e7cf706` | `am_margin: 0.22` | 3.49（margin=0.20） |
+| 44271590 | `exp/psc-source-faithful-s28` | `8801ed9` | `am_scale: 28` | 3.49（scale=30） |
+| 44271618 | `exp/psc-source-faithful-gamma07` | `3414c15` | `lr_scheduler_gamma: 0.7` | 3.49（gamma=0.5） |
+
+> `gamma07` 分支把 `train_source_faithful.py` 中硬编码的 `StepLR(..., gamma=0.5)` 改为从 config 读取，其余分支仅改 `config_psc_vox1.yaml`。
+
 > 44240592（MLP-D dev-trial 选模）best dev-trial EER 0.15%，但 Vox1-O final 3.91%，
 > 说明 dev-trial 口径与 Vox1-O 差距极大，不能混用。
 
