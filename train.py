@@ -501,7 +501,14 @@ def cli_main():
             config = yaml.safe_load(os.path.expandvars(file.read()))
         return config
 
-    config = load_config("/root/autodl-tmp/CAARMA/config.yaml")
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--config",
+        default="/root/autodl-tmp/CAARMA/config.yaml",
+        help="YAML experiment configuration",
+    )
+    args = parser.parse_args()
+    config = load_config(args.config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Device: ", device)
     
