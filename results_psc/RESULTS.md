@@ -61,10 +61,30 @@ snapshot 的 rank 偏移 bug。
 
 | JobID | 实验臂 | 最新可见 EER / minDCF(10⁻²) / minDCF(10⁻³) | 最优 EER |
 |---|---|---|---|
-| 44235182 | 3.09 repro（调参） | 4.21% / 0.4004 / 0.4993 | **4.09%** |
-| 44240592 | MLP-D dev-trial 选模 | 1.53% / 0.2295 / 0.3584 | **1.53%** |
+| 44235182 | 3.09 repro（调参） | 3.91% / 0.3652 / 0.3917 | **3.91%** |
+| 44240592 | MLP-D dev-trial 选模 | 0.92% / 0.1500 / 0.2380 | **0.92%** |
 
-> 其余 11 个创新臂经两轮路径 bug 修复后刚重新提交，第一个 epoch validation 尚未完成，暂无数值结果。
+> 44240592 使用 dev-trial 口径，与 Vox1-O 主实验不直接可比。
+
+### 修复后 11 个创新臂的 Epoch 0 结果
+
+第一轮路径修复后的作业已完成 Epoch 0 validation：
+
+| JobID | 实验臂 | Epoch 0 EER / minDCF(10⁻²) / minDCF(10⁻³) |
+|---|---|---|
+| 44247839 | E0 Xavier control | 10.93% / 0.7242 / 0.8806 |
+| 44247840 | E1 SLERP initialization | 10.42% / 0.7452 / 0.7964 |
+| 44247841 | E2 Powered CRP β=0.75 | 10.97% / 0.7374 / 0.8337 |
+| 44247842 | Pure Natural-Cluster | 10.66% / 0.7324 / 0.8472 |
+| 44247843 | Powered CRP β=0.5 | 10.68% / 0.7241 / 0.8466 |
+| 44247915 | class-capacity ratio | 待出 |
+| 44247936 | sample ratio | 待出 |
+| 44247937 | Corrected Concat-D | 待出 |
+| 44247938 | Q-shuffled | 待出 |
+| 44247939 | Q-only | 待出 |
+| 44247951 | Cluster-Random-4 | 待出 |
+
+> Epoch 0 的 EER 在 10% 左右是正常起点，后续 epoch 会快速下降。
 
 ### 已撤销 / 替换
 
