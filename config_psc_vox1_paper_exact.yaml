@@ -9,7 +9,7 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/caarma_paper_exact_vox1/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/caarma_paper_exact_vox1_bs13/checkpoints"
 hubert_cache_dir: "${CAARMA_HUBERT_CACHE}"
 hubert_model_name: "facebook/hubert-large-ls960-ft"
 
@@ -20,7 +20,7 @@ discriminator_lr: 0.0002
 epochs: 30
 weight_decay: 0.0000001
 warmup_step: 2000
-batch_size: 50
+batch_size: 13
 num_workers: 4
 second: 3
 do_augmentation: false
@@ -39,4 +39,4 @@ devices: 4
 num_nodes: 1
 precision: "16-mixed"
 seed: 42
-title: "caarma_paper_exact_vox1_psc"
+title: "caarma_paper_exact_vox1_bs13_psc"

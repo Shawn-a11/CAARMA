@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=caarma-pexact
+#SBATCH --job-name=caarma-pexact13
 #SBATCH --partition=GPU-shared
 #SBATCH --gpus=v100-32:4
 #SBATCH --nodes=1
@@ -24,7 +24,7 @@ test -f config_psc_vox1_paper_exact.yaml
 test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
-mkdir -p "$CAARMA_RUN_ROOT/caarma_paper_exact_vox1/checkpoints"
+mkdir -p "$CAARMA_RUN_ROOT/caarma_paper_exact_vox1_bs13/checkpoints"
 
 export OMP_NUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false
