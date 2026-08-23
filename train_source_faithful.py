@@ -97,7 +97,14 @@ class Task(LightningModule):
         self._ddp_params_and_buffers_to_ignore = hubert_ignore
 
         # ── source hyperparameters (do not touch without re-running ablation) ──
-        self.lambda_adv = 0.25         # post-pretrain initial value
+        self.lambda_adv_mode = str(self.config.get("lambda_adv_mode", "dynamic")).lower()
+        self.lambda_adv_fixed = float(self.config.get("lambda_adv_fixed", 0.05))
+        self.lambda_adv_initial = float(self.config.get("lambda_adv_initial", 0.25))
+        self.lambda_adv_reset_each_step = bool(
+            self.config.get("lambda_adv_reset_each_step", False)
+        )
+        self.joint_lsyn_scale = float(self.config.get("joint_lsyn_scale", 1.0))
+        self.lambda_adv = self.lambda_adv_initial
         self.pretrain_eps = 15         # epochs of weak-adversarial pretraining
         self.pretrain_discriminator = True
         self.discriminator_steps = 0
@@ -184,14 +191,16 @@ class Task(LightningModule):
         g_loss = (self.BCE_loss(fake_preds, torch.ones_like(fake_preds))
                   + self.BCE_loss(real_preds, torch.zeros_like(real_preds))) / 2
 
-        if adjust:
+        if self.lambda_adv_mode == "fixed":
+            self.lambda_adv = self.lambda_adv_fixed
+        elif adjust:
             self.lambda_adv = lambda_adv_value
             self.lambda_adv = self.adjust_weight(amsoftmax_loss, g_loss)
         else:
             self.lambda_adv = lambda_adv_value
 
         total_loss = (amsoftmax_loss
-                      + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
+                      + (self.joint_lsyn_scale / self.config['num_spk']) * amsoftmax_syn_loss
                       + self.lambda_adv * g_loss)
 
         self.manual_backward(total_loss)
@@ -259,6 +268,13 @@ class Task(LightningModule):
     def configure_optimizers(self):
         # Source-exact optimiser setup. D's lr is DYNAMIC (lr * 0.01), so
         # when StepLR halves the main lr, D's lr also halves implicitly.
+        # Locked AutoResearch recipe may override these via config.
+        discriminator_lr = float(
+            self.config.get("discriminator_lr", self.learning_rate * 0.01)
+        )
+        scheduler_step_size = int(self.config.get("lr_scheduler_step_size", 4))
+        scheduler_gamma = float(self.config.get("lr_scheduler_gamma", 0.5))
+
         embedding_optimizer = AdamW(
             list(self.model.parameters()) + list(self.loss.parameters()),
             lr=self.learning_rate,
@@ -267,12 +283,12 @@ class Task(LightningModule):
         )
         discriminator_optimizer = AdamW(
             self.discriminator.parameters(),
-            lr=self.learning_rate * 0.01,
+            lr=discriminator_lr,
             weight_decay=self.weight_decay,
             betas=(0.5, 0.999),
         )
-        embedding_scheduler = StepLR(embedding_optimizer, step_size=4, gamma=0.5)
-        discriminator_scheduler = StepLR(discriminator_optimizer, step_size=4, gamma=0.5)
+        embedding_scheduler = StepLR(embedding_optimizer, step_size=scheduler_step_size, gamma=scheduler_gamma)
+        discriminator_scheduler = StepLR(discriminator_optimizer, step_size=scheduler_step_size, gamma=scheduler_gamma)
         return ([embedding_optimizer, discriminator_optimizer],
                 [embedding_scheduler, discriminator_scheduler])
 
