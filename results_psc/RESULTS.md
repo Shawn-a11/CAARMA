@@ -43,7 +43,8 @@ snapshot 的 rank 偏移 bug。
 
 | JobID | 实验臂 | 分支 / commit | 数据 | 状态 | 日志 |
 |---|---|---|---|---|---|
-| 44235182 | 3.09 repro（调参） | `exp/psc-tuned-repro-309-vox1` @ `3afee15` | Vox1 | RUNNING | `caarma-tuned-repro-309-44235182.{out,err}` |
+| 44235182 | 3.09 repro（调参） | `exp/psc-tuned-repro-309-vox1` @ `3afee15` | Vox1 | COMPLETED | `caarma-tuned-repro-309-44235182.{out,err}` |
+| 44255041 | 3.09 source-faithful + am_margin 0.25 / am_scale 32 | `exp/psc-source-faithful-margin025` @ `ff4e77f` | Vox1 | RUNNING | `caarma-vox1-44255041.{out,err}` |
 | 44240592 | MLP-D joint-Lsyn dev-trial 选模 | `exp/psc-mlpd361-devsel` @ `?` | Vox1 | RUNNING | `caarma-mlpd361-devsel-44240592.{out,err}` |
 | 44247839 | E0 Xavier control | `exp/psc-e0-xavier-control` @ `243233f` | Vox1 | RUNNING | `caarma-e0-xavier-44247839.{out,err}` |
 | 44247840 | E1 SLERP initialization | `exp/psc-e1-slerp-init` @ `c25c2bf` | Vox1 | RUNNING | `caarma-e1-slerpinit-44247840.{out,err}` |
