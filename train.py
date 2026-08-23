@@ -370,8 +370,8 @@ class Task(LightningModule):
         scores = []
         epsilon = 1e-8  # Small value to prevent division by zero
         for item in trials:
-            enroll_vector = eval_vectors[index_mapping[self.config['root'] + item[1]]]
-            test_vector = eval_vectors[index_mapping[self.config['root'] + item[2]]]
+            enroll_vector = eval_vectors[index_mapping[os.path.join(self.config['root'], item[1])]]
+            test_vector = eval_vectors[index_mapping[os.path.join(self.config['root'], item[2])]]
             with torch.cuda.amp.autocast():
                 score = enroll_vector.dot(test_vector.T)
                 denom = np.linalg.norm(enroll_vector) * np.linalg.norm(test_vector)
