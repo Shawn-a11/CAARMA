@@ -90,19 +90,19 @@ snapshot 的 rank 偏移 bug。
 
 | JobID | 实验臂 | 已完成 epoch | 最新 EER / minDCF(10⁻²) / minDCF(10⁻³) |
 |---|---|---|---|
-| 44235182 | 3.09 repro（调参） | Epoch 24 | **3.65%** / 0.3813 / 0.4280 |
-| 44240592 | MLP-D dev-trial 选模 | Epoch 15 | **0.32%** / 0.0566 / 0.1233 |
-| 44247839 | E0 Xavier control | Epoch 11 | 3.79% / 0.3686 / 0.4951 |
-| 44247840 | E1 SLERP initialization | Epoch 10 | 4.01% / 0.3560 / 0.4203 |
-| 44247841 | E2 Powered CRP β=0.75 | Epoch 10 | 3.80% / 0.3738 / 0.4699 |
-| 44247842 | Pure Natural-Cluster | Epoch 10 | 3.91% / 0.3750 / 0.5221 |
-| 44247843 | Powered CRP β=0.5 | Epoch 10 | 4.01% / 0.3847 / 0.4756 |
-| 44247915 | class-capacity ratio | Epoch 10 | 3.77% / 0.3737 / 0.4389 |
-| 44247936 | sample ratio | Epoch 10 | 3.83% / 0.3657 / 0.4555 |
-| 44247937 | Corrected Concat-D | Epoch 10 | 3.80% / 0.3694 / 0.4862 |
-| 44247938 | Q-shuffled | Epoch 10 | 3.99% / 0.3829 / 0.4850 |
-| 44247939 | Q-only | Epoch 4 | 4.80% / 0.4252 / 0.4880 |
-| 44247951 | Cluster-Random-4 | PENDING | — |
+| 44235182 | 3.09 repro（调参） | **COMPLETED**（Epoch 29） | **3.70%** / 0.3720 / 0.4251 |
+| 44240592 | MLP-D dev-trial 选模 | Epoch 18 | **0.28%** / 0.0436 / 0.0800 |
+| 44247839 | E0 Xavier control | Epoch 17 | 3.63% / 0.3609 / 0.4253 |
+| 44247840 | E1 SLERP initialization | Epoch 16 | 3.57% / 0.3276 / 0.4198 |
+| 44247841 | E2 Powered CRP β=0.75 | Epoch 16 | 3.67% / 0.3574 / 0.4115 |
+| 44247842 | Pure Natural-Cluster | Epoch 16 | 3.65% / 0.3753 / 0.5365 |
+| 44247843 | Powered CRP β=0.5 | Epoch 16 | 3.77% / 0.3530 / 0.4803 |
+| 44247915 | class-capacity ratio | Epoch 16 | 3.60% / 0.3457 / 0.4200 |
+| 44247936 | sample ratio | Epoch 16 | 3.58% / 0.3749 / 0.4901 |
+| 44247937 | Corrected Concat-D | Epoch 16 | 3.59% / 0.3607 / 0.4304 |
+| 44247938 | Q-shuffled | Epoch 17 | 3.61% / 0.3270 / 0.4141 |
+| 44247939 | Q-only | Epoch 10 | 3.94% / 0.3593 / 0.4550 |
+| 44247951 | Cluster-Random-4 | RUNNING（刚启动） | — |
 
 > 44240592 使用 dev-trial 口径，与 Vox1-O 主实验不直接可比。
 
@@ -146,9 +146,12 @@ discriminator 与状态机，但把超参改为 config 驱动，并限制在 Vox
 
 ## 主要观察
 
-- **论文 3.09 未复现**：两个 3.09 臂（source-faithful 3.51、paper-exact 3.48-best）与 3.09 仍有
-  ~0.4pp 差距；paper-exact 去掉 StepLR 后反而比 source-faithful 略差，说明 StepLR 衰减不是阻
-  碍，甚至可能有助于收敛。
+- **论文 3.09 仍未复现**：
+  - source-faithful 复现 best ~3.49%，paper-exact 复现 best ~3.48%；
+  - 当前 3.09 调参臂（44235182）30 epoch 完整跑完，最终 **3.70%** / 0.3720 / 0.4251，
+    与 3.09 仍有 **0.61pp** 差距；
+  - paper-exact 去掉 StepLR 后反而比 source-faithful 略差，说明 StepLR 衰减不是阻碍，
+    甚至可能有助于收敛。
 - **主链趋势成立**：Projection-D（~3.34）< CRP persistent（~3.39）< Concat-D（~3.50）< MLP-D
   baseline（3.75），即 persistent identity → prototype compatibility → 结构化候选的递增效
   益在 PSC 锁定运行时下仍可复现。
