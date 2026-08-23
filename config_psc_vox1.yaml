@@ -38,3 +38,4 @@ num_nodes: 1
 precision: "16-mixed"
 seed: 42
 title: "caarma_original_vox1_psc"
+seed: 0
