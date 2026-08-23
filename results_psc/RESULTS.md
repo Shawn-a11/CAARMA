@@ -50,12 +50,12 @@ snapshot 的 rank 偏移 bug。
 | 44245746 | E2 Powered CRP β=0.75 | `exp/psc-e2-powered-crp-beta75` @ `0b7a44c` | Vox1 | RUNNING | `caarma-e2-powered75-44245746.{out,err}` |
 | 44245747 | Pure Natural-Cluster | `exp/psc-pure-natural-cluster` @ `7bb5cad` | Vox1 | RUNNING | `caarma-pure-natclust-44245747.{out,err}` |
 | 44245748 | Powered CRP β=0.5 | `exp/psc-powered-crp-beta05` @ `b46b696` | Vox1 | RUNNING | `caarma-powered-beta05-44245748.{out,err}` |
-| 44245779 | class-capacity ratio | `exp/psc-class-ratio` @ `fe7120c` | Vox1 | PENDING | `caarma-class-ratio-44245779.{out,err}` |
-| 44245780 | sample ratio | `exp/psc-sample-ratio` @ `b8fb936` | Vox1 | PENDING | `caarma-sample-ratio-44245780.{out,err}` |
-| 44245781 | Corrected Concat-D | `exp/psc-corrected-concat` @ `e8c7349` | Vox1 | PENDING | `caarma-corrected-concat-44245781.{out,err}` |
+| 44245779 | class-capacity ratio | `exp/psc-class-ratio` @ `fe7120c` | Vox1 | RUNNING | `caarma-class-ratio-44245779.{out,err}` |
+| 44245780 | sample ratio | `exp/psc-sample-ratio` @ `b8fb936` | Vox1 | RUNNING | `caarma-sample-ratio-44245780.{out,err}` |
+| 44245781 | Corrected Concat-D | `exp/psc-corrected-concat` @ `e8c7349` | Vox1 | RUNNING | `caarma-corrected-concat-44245781.{out,err}` |
 | 44246165 | Q-shuffled | `exp/psc-q-shuffled` @ `47664f8` | Vox1 | PENDING | `caarma-q-shuffled-44246165.{out,err}` |
 | 44246166 | Q-only | `exp/psc-q-only` @ `3d18eb4` | Vox1 | PENDING | `caarma-q-only-44246166.{out,err}` |
-| 44245787 | Cluster-Random-4 | `exp/psc-cluster-random4` @ `947021d` | Vox1 | PENDING | `caarma-cluster-random4-44245787.{out,err}` |
+| 44245787 | Cluster-Random-4 | `exp/psc-cluster-random4` @ `947021d` | Vox1 | RUNNING | `caarma-cluster-random4-44245787.{out,err}` |
 
 ### 已撤销 / 替换
 
