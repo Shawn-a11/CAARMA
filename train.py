@@ -489,8 +489,8 @@ def cli_main():
     def load_config(config_file_path):
         """Load the configuration from the file."""
         with open(config_file_path) as file:
-        config = yaml.safe_load(os.path.expandvars(file.read()))
-    return config
+            config = yaml.safe_load(os.path.expandvars(file.read()))
+        return config
 
     parser = ArgumentParser()
     parser.add_argument(
