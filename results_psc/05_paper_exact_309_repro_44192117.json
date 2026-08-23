@@ -1,0 +1,33 @@
+{
+  "COMMIT": "1ab649b1ffa46ddd3129fcd7620be2e347d986b0",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-pexact-44192117.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44192117",
+  "JOB_NAME": "caarma-pexact",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-pexact-44192117.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/paper-exact-1ab649b",
+  "SCRIPT": "scripts/psc/train_vox1_paper_exact.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-22",
+    "branch": "exp/psc-paper-exact-repro-309",
+    "commit": "1ab649b",
+    "experiment": "3.09 paper-exact reproduction (no StepLR)",
+    "metrics": {
+      "best_eer": 3.48,
+      "best_epoch": 29,
+      "final_eer": 3.64,
+      "final_min_dcf_1e2": 0.3946,
+      "final_min_dcf_1e3": 0.4403
+    },
+    "notes": "Reproduce paper 3.09% EER, paper-exact without StepLR decay",
+    "raw_file": "archive/44192117.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44192117",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-22T18:13:45.632412+00:00",
+  "updated_at_utc": "2026-08-22T18:13:45.633238+00:00"
+}

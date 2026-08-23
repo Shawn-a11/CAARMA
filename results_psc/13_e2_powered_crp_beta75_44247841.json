@@ -1,0 +1,33 @@
+{
+  "COMMIT": "9ad4f2a616f90245ce7ad988c2141e1ad06f1663",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-e2-powered75-44247841.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44247841",
+  "JOB_NAME": "caarma-e2-powered75",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-e2-powered75-44247841.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/psc-e2-powered-crp-beta75-9ad4f2a",
+  "SCRIPT": "scripts/psc/train_e2_powered_crp_beta75.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-23",
+    "branch": "exp/psc-e2-powered-crp-beta75",
+    "commit": "9ad4f2a",
+    "experiment": "E2 Powered CRP beta=0.75",
+    "metrics": {
+      "best_eer": 3.58,
+      "best_epoch": 19,
+      "final_eer": 3.59,
+      "final_min_dcf_1e2": 0.351,
+      "final_min_dcf_1e3": 0.4259
+    },
+    "notes": "Powered CRP reuse exponent beta=0.75",
+    "raw_file": "archive/44247841.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44247841",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T09:54:11.777548+00:00",
+  "updated_at_utc": "2026-08-23T09:54:11.778854+00:00"
+}

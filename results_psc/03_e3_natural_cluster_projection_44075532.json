@@ -1,0 +1,33 @@
+{
+  "COMMIT": "82c98b21c8f7f3461a7cf94e3bca16dd5992fe64",
+  "DEPENDENCY": "44068576",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-e3-44075532.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44075532",
+  "JOB_NAME": "caarma-e3",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-e3-44075532.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/e3-natural-cluster-82c98b2",
+  "SCRIPT": "scripts/psc/train_e3_natural_cluster.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-21",
+    "branch": "caarma_jobs/e3-natural-cluster-82c98b2",
+    "commit": "82c98b2",
+    "experiment": "E3 Natural-Cluster Projection-D",
+    "metrics": {
+      "best_eer": 3.47,
+      "best_epoch": "19/26",
+      "final_eer": 3.54,
+      "final_min_dcf_1e2": 0.3492,
+      "final_min_dcf_1e3": 0.4468
+    },
+    "notes": "Natural cluster + Projection-D candidate structure",
+    "raw_file": "archive/44075532.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44075532",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-21T13:56:26.850944+00:00",
+  "updated_at_utc": "2026-08-21T13:56:26.851542+00:00"
+}

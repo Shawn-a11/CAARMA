@@ -1,0 +1,33 @@
+{
+  "COMMIT": "fbd396ac861c21b9f7f598f0c12978d77451f068",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-proj-44190693.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44190693",
+  "JOB_NAME": "caarma-proj",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-proj-44190693.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/projection-crp-fbd396a",
+  "SCRIPT": "scripts/psc/train_projection_crp.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-22",
+    "branch": "exp/psc-projection-crp-persistent-synth",
+    "commit": "fbd396a",
+    "experiment": "main chain Projection-D",
+    "metrics": {
+      "best_eer": 3.34,
+      "best_epoch": 29,
+      "final_eer": 3.35,
+      "final_min_dcf_1e2": 0.3454,
+      "final_min_dcf_1e3": 0.4019
+    },
+    "notes": "Main chain: Projection-D compatibility on persistent CRP",
+    "raw_file": "archive/44190693.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44190693",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-22T17:53:07.425183+00:00",
+  "updated_at_utc": "2026-08-22T17:53:07.425968+00:00"
+}

@@ -1,0 +1,33 @@
+{
+  "COMMIT": "c25c2bf88ca8532e3109bbef4606229098774aa7",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-e1-slerpinit-44247840.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44247840",
+  "JOB_NAME": "caarma-e1-slerpinit",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-e1-slerpinit-44247840.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/psc-e1-slerp-init-c25c2bf",
+  "SCRIPT": "scripts/psc/train_e1_slerp_init.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-23",
+    "branch": "exp/psc-e1-slerp-init",
+    "commit": "c25c2bf",
+    "experiment": "E1 Parent-SLERP initialization",
+    "metrics": {
+      "best_eer": 3.48,
+      "best_epoch": 25,
+      "final_eer": 3.49,
+      "final_min_dcf_1e2": 0.3441,
+      "final_min_dcf_1e3": 0.3942
+    },
+    "notes": "Parent-SLERP initialization for Wsyn; ablation vs E0 Xavier",
+    "raw_file": "archive/44247840.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44247840",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T09:54:07.216961+00:00",
+  "updated_at_utc": "2026-08-23T09:54:07.218064+00:00"
+}

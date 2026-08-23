@@ -1,0 +1,33 @@
+{
+  "COMMIT": "372132e16fda4cb91fee50b45c16aef1ade0850b",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-class-ratio-44247915.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44247915",
+  "JOB_NAME": "caarma-class-ratio",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-class-ratio-44247915.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/psc-class-ratio-372132e",
+  "SCRIPT": "scripts/psc/train_class_ratio.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-23",
+    "branch": "exp/psc-class-ratio",
+    "commit": "372132e",
+    "experiment": "class-capacity ratio",
+    "metrics": {
+      "best_eer": 3.45,
+      "best_epoch": 19,
+      "final_eer": 3.49,
+      "final_min_dcf_1e2": 0.3441,
+      "final_min_dcf_1e3": 0.4639
+    },
+    "notes": "Synthetic/real class capacity ratio scan",
+    "raw_file": "archive/44247915.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44247915",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T09:55:09.236762+00:00",
+  "updated_at_utc": "2026-08-23T09:55:09.238152+00:00"
+}

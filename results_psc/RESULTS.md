@@ -35,9 +35,9 @@ snapshot 的 rank 偏移 bug。
 注：44190692（Concat-D 首次提交）因 `train.py` 硬编码 AutoDL 路径、`--config` 未接入而启动失败，已修
 复（`5fdee43`）并由 44191580 替代。
 
-## 2026-08-23 批次（当前运行中）
+## 2026-08-23 批次（已完成）
 
-策略调整：主方法分支按原代码参数复现；3.09 复现只在 **VoxCeleb1** 上进行调参。
+策略调整：主方法分支按原代码参数复现；3.09 复现只在 **VoxCeleb1** 上进行调参。该批次 13 个作业已全部 COMPLETED。
 
 ### 已运行 / 排队作业
 
@@ -223,16 +223,44 @@ discriminator 与状态机，但把超参改为 config 驱动，并限制在 Vox
 
 ## 归档文件
 
-- 所有 PSC runner collect 的原始 JSON 已同步到 `/Users/shawn/CAARMA/results_psc/`，
-  共 67 个文件（含成功、失败、被替换的作业）。主要 JobID 包括：
-  - 2026-08-21：`44072499`、`44075531`、`44075532`
-  - 2026-08-22：`44189004`、`44192117`、`44190687`、`44191580`、`44190693`
-  - 2026-08-23 当前批次：`44235182`、`44240592`、`44247839–44247843`、
-    `44247915`、`44247936`、`44247937`、`44247938`、`44247939`、`44247951`
-  - 3.09 调参新实验：`44255041`（COMPLETED）
-  - 被撤销 / 替换的早期尝试：`44235179–44235181`、`44244261`、`44244290`、`44244291`、
-    `44244325–44244327`、`44244334–44244335`、`44244374–44244375`、`44244409`、
-    `44245125–44245129`、`44245744–44245748`、`44245779–44245783`、`44245787`、
-    `44246165`、`44246166`、`44247149–44247151`、`44247159–44247160`、`44247212`、
-    `44247256`、`44247289–44247291`、`44247307`。
-- 待补充：完整 epoch 曲线 CSV/JSON（目前只有 best / latest 摘要）。
+为便于使用，`results_psc/` 顶层只保留**成功且有标准意义**的实验，按方法链顺序以描述性文件名命名；
+所有原始 runner JSON（含失败 / 被替换作业）仍保留在 `results_psc/archive/` 中，共 67 个。
+
+### 顶层描述性文件（22 个）
+
+| 文件名 | 实验 | 批次 | best EER |
+|---|---|---|---|
+| `01_mlpd_joint_lsyn_baseline_44072499.json` | MLP-D joint-Lsyn baseline | 2026-08-21 | 3.75 |
+| `02_hubert_paper_aligned_44075531.json` | paper-aligned HuBERT | 2026-08-21 | 3.39 |
+| `03_e3_natural_cluster_projection_44075532.json` | E3 Natural-Cluster Projection-D | 2026-08-21 | 3.47 |
+| `04_source_faithful_309_repro_44189004.json` | 3.09 source-faithful 复现 | 2026-08-22 | 3.49 |
+| `05_paper_exact_309_repro_44192117.json` | 3.09 paper-exact 复现 | 2026-08-22 | 3.48 |
+| `06_main_crp_persistent_44190687.json` | 主链 CRP persistent | 2026-08-22 | 3.39 |
+| `07_main_concat_d_44191580.json` | 主链 Concat-D | 2026-08-22 | 3.50 |
+| `08_main_projection_d_44190693.json` | 主链 Projection-D | 2026-08-22 | 3.34 |
+| `09_tuned_309_repro_vox1_44235182.json` | 3.09 tuned reproduction on Vox1 | 2026-08-23 | 3.65 |
+| `10_mlpd_dev_trial_selection_44240592.json` | MLP-D dev-trial 选模 | 2026-08-23 | 0.15* |
+| `11_e0_xavier_control_44247839.json` | E0 Xavier control | 2026-08-23 | 3.61 |
+| `12_e1_slerp_initialization_44247840.json` | E1 Parent-SLERP initialization | 2026-08-23 | 3.48 |
+| `13_e2_powered_crp_beta75_44247841.json` | E2 Powered CRP β=0.75 | 2026-08-23 | 3.58 |
+| `14_pure_natural_cluster_44247842.json` | Pure Natural-Cluster | 2026-08-23 | 3.59 |
+| `15_powered_crp_beta05_44247843.json` | Powered CRP β=0.5 | 2026-08-23 | 3.64 |
+| `16_class_capacity_ratio_44247915.json` | class-capacity ratio | 2026-08-23 | 3.45 |
+| `17_sample_ratio_44247936.json` | sample ratio | 2026-08-23 | 3.44 |
+| `18_corrected_concat_d_44247937.json` | Corrected Concat-D | 2026-08-23 | 3.53 |
+| `19_q_shuffled_44247938.json` | Q-shuffled | 2026-08-23 | 3.57 |
+| `20_q_only_44247939.json` | Q-only | 2026-08-23 | 3.53 |
+| `21_cluster_random_4_44247951.json` | Cluster-Random-4 | 2026-08-23 | 3.53 |
+| `22_source_faithful_margin025_scale32_44255041.json` | source-faithful + am_margin 0.25 / am_scale 32 | 2026-08-23 | 3.58 |
+
+> `*` dev-trial 口径，与 Vox1-O 不直接可比。
+
+### 原始归档
+
+- `results_psc/archive/`：保留全部 67 个原始 runner JSON，含失败与被替换作业，便于问题追溯。
+- `results_psc/rename_map.json`：描述性文件与原始 JobID 的映射及关键指标。
+
+### 方法链分析
+
+见 `results_psc/METHOD_STORY_ANALYSIS.md`：对照 `viz/method_story_html/index.html` 的叙事主线，
+逐条评估当前证据是否支持，并给出下一步调参计划。

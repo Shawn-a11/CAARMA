@@ -1,0 +1,33 @@
+{
+  "COMMIT": "90b687f8f0df59320949d497d8aca22451dfda68",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-q-shuffled-44247938.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44247938",
+  "JOB_NAME": "caarma-q-shuffled",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-q-shuffled-44247938.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/psc-q-shuffled-90b687f",
+  "SCRIPT": "scripts/psc/train_q_shuffled.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-23",
+    "branch": "exp/psc-q-shuffled",
+    "commit": "90b687f",
+    "experiment": "Q-shuffled",
+    "metrics": {
+      "best_eer": 3.57,
+      "best_epoch": 21,
+      "final_eer": 3.57,
+      "final_min_dcf_1e2": 0.323,
+      "final_min_dcf_1e3": 0.3726
+    },
+    "notes": "Projection-D with shuffled q; tests assignment importance",
+    "raw_file": "archive/44247938.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44247938",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T09:55:40.145371+00:00",
+  "updated_at_utc": "2026-08-23T09:55:40.146739+00:00"
+}

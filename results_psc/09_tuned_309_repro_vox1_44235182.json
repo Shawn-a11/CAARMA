@@ -1,0 +1,33 @@
+{
+  "COMMIT": "3afee15442d877f5fb51b726f979bbbbe2215e4c",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-tuned-repro-309-44235182.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44235182",
+  "JOB_NAME": "caarma-tuned-repro-309",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-tuned-repro-309-44235182.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/exp-psc-tuned-repro-309-vox1-3afee15",
+  "SCRIPT": "scripts/psc/train_tuned_repro_309.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-23",
+    "branch": "exp/psc-tuned-repro-309-vox1",
+    "commit": "3afee15",
+    "experiment": "3.09 tuned reproduction on Vox1",
+    "metrics": {
+      "best_eer": 3.65,
+      "best_epoch": 24,
+      "final_eer": 3.7,
+      "final_min_dcf_1e2": 0.372,
+      "final_min_dcf_1e3": 0.4251
+    },
+    "notes": "Tuned hyperparameters for 3.09 reproduction, Vox1 only",
+    "raw_file": "archive/44235182.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44235182",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T06:20:35.360300+00:00",
+  "updated_at_utc": "2026-08-23T06:20:35.361244+00:00"
+}

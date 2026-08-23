@@ -1,0 +1,47 @@
+{
+  "COMMIT": "ff4e77ff542fcc68abe45d6537f461949de09556",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-vox1-44255041.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44255041",
+  "JOB_NAME": "caarma-vox1",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-vox1-44255041.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/source-faithful-margin025-ff4e77f",
+  "SCRIPT": "scripts/psc/train_vox1.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-23",
+    "branch": "exp/psc-source-faithful-margin025",
+    "commit": "ff4e77f",
+    "experiment": "source-faithful + am_margin 0.25 / am_scale 32",
+    "metrics": {
+      "best_eer": 3.58,
+      "best_epoch": 28,
+      "final_eer": 3.6,
+      "final_min_dcf_1e2": 0.3438,
+      "final_min_dcf_1e3": 0.4402
+    },
+    "notes": "3.09 reproduction tuning: am_margin=0.25, am_scale=32",
+    "raw_file": "archive/44255041.json",
+    "status": "COMPLETED"
+  },
+  "best_eer_in_tail": 3.58,
+  "collected_at_utc": "2026-08-24T00:21:00+00:00",
+  "job_id": "44255041",
+  "latest_min_dcf_1e2_in_tail": 0.3438,
+  "latest_min_dcf_1e3_in_tail": 0.4402,
+  "ssh_host": "bridges2",
+  "status": {
+    "elapsed": "03:16:41",
+    "end": "2026-08-23T12:07:11",
+    "exit_code": "0:0",
+    "job_id": "44255041",
+    "job_name": "caarma-vox1",
+    "ssh_host": "bridges2",
+    "start": "2026-08-23T08:50:30",
+    "state": "COMPLETED"
+  },
+  "submitted_at_utc": "2026-08-23T12:01:15.189383+00:00",
+  "updated_at_utc": "2026-08-23T12:01:15.190602+00:00"
+}

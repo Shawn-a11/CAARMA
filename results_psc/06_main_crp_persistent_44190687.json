@@ -1,0 +1,33 @@
+{
+  "COMMIT": "db0d3c275d45be51890a53ecdb4b589c4c3cfde8",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-crp-44190687.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44190687",
+  "JOB_NAME": "caarma-crp",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-crp-44190687.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/crp-persistent-db0d3c2",
+  "SCRIPT": "scripts/psc/train_crp_persistent.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-22",
+    "branch": "exp/psc-crp-persistent-synth",
+    "commit": "db0d3c2",
+    "experiment": "main chain CRP persistent",
+    "metrics": {
+      "best_eer": 3.39,
+      "best_epoch": 29,
+      "final_eer": 3.4,
+      "final_min_dcf_1e2": 0.3618,
+      "final_min_dcf_1e3": 0.5375
+    },
+    "notes": "Main chain: CRP persistent synthetic class",
+    "raw_file": "archive/44190687.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44190687",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-22T17:53:01.169348+00:00",
+  "updated_at_utc": "2026-08-22T17:53:01.171087+00:00"
+}

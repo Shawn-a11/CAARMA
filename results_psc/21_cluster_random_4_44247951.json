@@ -1,0 +1,33 @@
+{
+  "COMMIT": "1e0cea618dbd7d4eb41c63a0cfae804fd076214a",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-cluster-random4-44247951.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44247951",
+  "JOB_NAME": "caarma-cluster-random4",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-cluster-random4-44247951.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/psc-cluster-random4-1e0cea6",
+  "SCRIPT": "scripts/psc/train_cluster_random4.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-23",
+    "branch": "exp/psc-cluster-random4",
+    "commit": "1e0cea6",
+    "experiment": "Cluster-Random-4",
+    "metrics": {
+      "best_eer": 3.53,
+      "best_epoch": 19,
+      "final_eer": 3.53,
+      "final_min_dcf_1e2": 0.3577,
+      "final_min_dcf_1e3": 0.4177
+    },
+    "notes": "Random selection within natural cluster; candidate locality control",
+    "raw_file": "archive/44247951.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44247951",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T09:55:47.873277+00:00",
+  "updated_at_utc": "2026-08-23T09:55:47.874571+00:00"
+}

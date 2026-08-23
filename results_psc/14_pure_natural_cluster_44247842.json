@@ -1,0 +1,33 @@
+{
+  "COMMIT": "2e3b0fc8cc512d5925180b1031d3b24fb4159ebb",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-pure-natclust-44247842.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44247842",
+  "JOB_NAME": "caarma-pure-natclust",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-pure-natclust-44247842.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/psc-pure-natural-cluster-2e3b0fc",
+  "SCRIPT": "scripts/psc/train_pure_natural_cluster.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-23",
+    "branch": "exp/psc-pure-natural-cluster",
+    "commit": "2e3b0fc",
+    "experiment": "Pure Natural-Cluster",
+    "metrics": {
+      "best_eer": 3.59,
+      "best_epoch": 27,
+      "final_eer": 3.64,
+      "final_min_dcf_1e2": 0.3713,
+      "final_min_dcf_1e3": 0.5128
+    },
+    "notes": "Natural cluster candidate generation without local top-4",
+    "raw_file": "archive/44247842.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44247842",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T09:54:14.858785+00:00",
+  "updated_at_utc": "2026-08-23T09:54:14.860001+00:00"
+}
