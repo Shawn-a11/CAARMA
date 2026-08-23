@@ -92,18 +92,19 @@ snapshot 的 rank 偏移 bug。
 | JobID | 实验臂 | 已完成 epoch | 最新 EER / minDCF(10⁻²) / minDCF(10⁻³) |
 |---|---|---|---|
 | 44235182 | 3.09 repro（调参） | **COMPLETED**（Epoch 29） | **3.70%** / 0.3720 / 0.4251 |
-| 44240592 | MLP-D dev-trial 选模 | Epoch 18 | **0.28%** / 0.0436 / 0.0800 |
-| 44247839 | E0 Xavier control | Epoch 17 | 3.63% / 0.3609 / 0.4253 |
-| 44247840 | E1 SLERP initialization | Epoch 16 | 3.57% / 0.3276 / 0.4198 |
-| 44247841 | E2 Powered CRP β=0.75 | Epoch 16 | 3.67% / 0.3574 / 0.4115 |
-| 44247842 | Pure Natural-Cluster | Epoch 16 | 3.65% / 0.3753 / 0.5365 |
-| 44247843 | Powered CRP β=0.5 | Epoch 16 | 3.77% / 0.3530 / 0.4803 |
-| 44247915 | class-capacity ratio | Epoch 16 | 3.60% / 0.3457 / 0.4200 |
-| 44247936 | sample ratio | Epoch 16 | 3.58% / 0.3749 / 0.4901 |
-| 44247937 | Corrected Concat-D | Epoch 16 | 3.59% / 0.3607 / 0.4304 |
-| 44247938 | Q-shuffled | Epoch 17 | 3.61% / 0.3270 / 0.4141 |
-| 44247939 | Q-only | Epoch 10 | 3.94% / 0.3593 / 0.4550 |
-| 44247951 | Cluster-Random-4 | RUNNING（刚启动） | — |
+| 44255041 | 3.09 source-faithful + am_margin 0.25 / am_scale 32 | PENDING | — |
+| 44240592 | MLP-D dev-trial 选模 | Epoch 20 | **0.19%** / 0.0351 / 0.0843 |
+| 44247839 | E0 Xavier control | Epoch 21 | 3.66% / 0.3571 / 0.4857 |
+| 44247840 | E1 SLERP initialization | Epoch 20 | 3.49% / 0.3441 / 0.3942 |
+| 44247841 | E2 Powered CRP β=0.75 | Epoch 20 | 3.59% / 0.3510 / 0.4259 |
+| 44247842 | Pure Natural-Cluster | Epoch 20 | 3.64% / 0.3713 / 0.5128 |
+| 44247843 | Powered CRP β=0.5 | Epoch 20 | 3.74% / 0.3644 / 0.5072 |
+| 44247915 | class-capacity ratio | Epoch 20 | 3.49% / 0.3441 / 0.4639 |
+| 44247936 | sample ratio | Epoch 19 | 3.54% / 0.3714 / 0.4286 |
+| 44247937 | Corrected Concat-D | Epoch 19 | 3.61% / 0.3413 / 0.4066 |
+| 44247938 | Q-shuffled | Epoch 21 | 3.57% / 0.3230 / 0.3726 |
+| 44247939 | Q-only | Epoch 14 | 3.75% / 0.3567 / 0.4027 |
+| 44247951 | Cluster-Random-4 | Epoch 2 | 5.85% / 0.5076 / 0.6645 |
 
 > 44240592 使用 dev-trial 口径，与 Vox1-O 主实验不直接可比。
 
