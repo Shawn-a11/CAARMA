@@ -271,8 +271,9 @@ class Task(LightningModule):
             weight_decay=self.weight_decay,
             betas=(0.5, 0.999),
         )
-        embedding_scheduler = StepLR(embedding_optimizer, step_size=4, gamma=0.5)
-        discriminator_scheduler = StepLR(discriminator_optimizer, step_size=4, gamma=0.5)
+        gamma = float(self.config.get("lr_scheduler_gamma", 0.5))
+        embedding_scheduler = StepLR(embedding_optimizer, step_size=4, gamma=gamma)
+        discriminator_scheduler = StepLR(discriminator_optimizer, step_size=4, gamma=gamma)
         return ([embedding_optimizer, discriminator_optimizer],
                 [embedding_scheduler, discriminator_scheduler])
 
