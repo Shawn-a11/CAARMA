@@ -1,0 +1,41 @@
+model: MFA-CONFORMER
+features: Fbank
+augmentations:
+  add_noise: false
+  add_reverb: false
+  drop_freq: false
+  drop_chunk: false
+dataset: ${CAARMA_TRAIN_MANIFEST}
+USE_WANDB: False;
+criterion: AMSoftmaxGAN
+init_lr: 0.001
+epochs: 30
+weight_decay: 1.0e-07
+trial_path: ${CAARMA_TRIAL_PATH}
+root: ${CAARMA_VOX1_EVAL_ROOT}
+warmup_step: 2000
+batch_size: 50
+num_workers: 8
+second: 3
+do_augmentation: false
+num_spk: 1211
+mixup: true
+embedding_dim: 192
+checkpoint_path: None
+resume_from_checkpoint: None
+save_dir: ${CAARMA_RUN_ROOT}/class_ratio/checkpoints
+title: class_ratio_psc
+seed: 42
+persistence: true
+slerp_t: 0.5
+synth_bank_size: 10
+synth_max_factor: 4
+synth_init: slerp_parents
+pair_strategy: crp
+crp_alpha: 1.0
+crp_topk: 4
+reuse_policy: popularity
+reuse_power: 1.0
+candidate_pool: cluster
+cluster_size: 8
+discriminator_type: projection
