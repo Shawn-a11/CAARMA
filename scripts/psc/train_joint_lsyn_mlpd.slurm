@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=caarma-mlpd361
+#SBATCH --job-name=caarma-mlpd13
 #SBATCH --partition=GPU-shared
 #SBATCH --gpus=v100-32:4
 #SBATCH --nodes=1
@@ -31,7 +31,7 @@ cd "$REPO_ROOT"
 test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
-mkdir -p "$CAARMA_RUN_ROOT/joint_lsyn_mlpd_361/checkpoints"
+mkdir -p "$CAARMA_RUN_ROOT/mlpd_joint_lsyn_bs13/checkpoints"
 
 export OMP_NUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false
