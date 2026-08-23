@@ -1,0 +1,17 @@
+{
+  "COMMIT": "432208b47839999630fbd1c0150f62569ac44da1",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-powered-beta05-44245129.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44245129",
+  "JOB_NAME": "caarma-powered-beta05",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-powered-beta05-44245129.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/psc-powered-crp-beta05-432208b",
+  "SCRIPT": "scripts/psc/train_powered_crp_beta05.slurm",
+  "WALLTIME": "12:00:00",
+  "job_id": "44245129",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T09:09:23.005005+00:00",
+  "updated_at_utc": "2026-08-23T09:09:23.005987+00:00"
+}

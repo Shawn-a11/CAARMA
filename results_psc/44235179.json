@@ -1,0 +1,17 @@
+{
+  "COMMIT": "db0d3c275d45be51890a53ecdb4b589c4c3cfde8",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-crp-44235179.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44235179",
+  "JOB_NAME": "caarma-crp",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-crp-44235179.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/exp-psc-crp-persistent-synth-db0d3c2",
+  "SCRIPT": "scripts/psc/train_crp_persistent.slurm",
+  "WALLTIME": "12:00:00",
+  "job_id": "44235179",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T06:20:27.184301+00:00",
+  "updated_at_utc": "2026-08-23T06:20:27.185645+00:00"
+}

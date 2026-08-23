@@ -1,0 +1,17 @@
+{
+  "COMMIT": "caeee56d4de67564c30b1fa032c85677a26e0442",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-e0-xavier-44245125.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44245125",
+  "JOB_NAME": "caarma-e0-xavier",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-e0-xavier-44245125.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/psc-e0-xavier-control-caeee56",
+  "SCRIPT": "scripts/psc/train_e0_xavier_control.slurm",
+  "WALLTIME": "12:00:00",
+  "job_id": "44245125",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T09:09:10.204449+00:00",
+  "updated_at_utc": "2026-08-23T09:09:10.204853+00:00"
+}

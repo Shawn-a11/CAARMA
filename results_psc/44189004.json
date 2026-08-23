@@ -1,0 +1,17 @@
+{
+  "COMMIT": "bc085f553b98cf5858b17c618ebb8ae1903b6094",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-vox1-44189004.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44189004",
+  "JOB_NAME": "caarma-vox1",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-vox1-44189004.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/source-faithful-repro309-bc085f5",
+  "SCRIPT": "scripts/psc/train_vox1.slurm",
+  "WALLTIME": "12:00:00",
+  "job_id": "44189004",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-22T17:24:04.586789+00:00",
+  "updated_at_utc": "2026-08-22T17:24:04.588961+00:00"
+}

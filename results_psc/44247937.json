@@ -1,0 +1,17 @@
+{
+  "COMMIT": "8e17e4e5275315d78442336c531fcddc73548cd9",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-corrected-concat-44247937.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44247937",
+  "JOB_NAME": "caarma-corrected-concat",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-corrected-concat-44247937.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/psc-corrected-concat-8e17e4e",
+  "SCRIPT": "scripts/psc/train_corrected_concat.slurm",
+  "WALLTIME": "12:00:00",
+  "job_id": "44247937",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T09:55:35.400458+00:00",
+  "updated_at_utc": "2026-08-23T09:55:35.401409+00:00"
+}
