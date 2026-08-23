@@ -33,6 +33,7 @@ from scipy.interpolate import interp1d
 from sklearn.metrics import roc_curve
 from scipy.optimize import brentq
 from pytorch_lightning.loggers import WandbLogger
+import os
 
 class Task(LightningModule):
     def __init__(self, features, model, loss, config, learning_rate=0.2, weight_decay=1.5e-6, 
@@ -463,8 +464,8 @@ def cli_main():
     def load_config(config_file_path):
         """Load the configuration from the file."""
         with open(config_file_path) as file:
-            config = yaml.safe_load(file)
-        return config
+        config = yaml.safe_load(os.path.expandvars(file.read()))
+    return config
 
     config = load_config("/root/autodl-tmp/CAARMA/config.yaml")
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
