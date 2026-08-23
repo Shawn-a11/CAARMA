@@ -53,8 +53,8 @@ snapshot 的 rank 偏移 bug。
 | 44245779 | class-capacity ratio | `exp/psc-class-ratio` @ `fe7120c` | Vox1 | PENDING | `caarma-class-ratio-44245779.{out,err}` |
 | 44245780 | sample ratio | `exp/psc-sample-ratio` @ `b8fb936` | Vox1 | PENDING | `caarma-sample-ratio-44245780.{out,err}` |
 | 44245781 | Corrected Concat-D | `exp/psc-corrected-concat` @ `e8c7349` | Vox1 | PENDING | `caarma-corrected-concat-44245781.{out,err}` |
-| 44245782 | Q-shuffled | `exp/psc-q-shuffled` @ `0b76d9f` | Vox1 | PENDING | `caarma-q-shuffled-44245782.{out,err}` |
-| 44245783 | Q-only | `exp/psc-q-only` @ `0522b31` | Vox1 | PENDING | `caarma-q-only-44245783.{out,err}` |
+| 44246165 | Q-shuffled | `exp/psc-q-shuffled` @ `47664f8` | Vox1 | PENDING | `caarma-q-shuffled-44246165.{out,err}` |
+| 44246166 | Q-only | `exp/psc-q-only` @ `3d18eb4` | Vox1 | PENDING | `caarma-q-only-44246166.{out,err}` |
 | 44245787 | Cluster-Random-4 | `exp/psc-cluster-random4` @ `947021d` | Vox1 | PENDING | `caarma-cluster-random4-44245787.{out,err}` |
 
 ### 已撤销 / 替换
@@ -63,6 +63,9 @@ snapshot 的 rank 偏移 bug。
   相关分支的修复版本见上表 44245744 起的新批次。
 - **44245125–44245129**（E0 / E1 / E2 / Pure Natural-Cluster / Powered-β0.5 首次修复提交）因 `train.py`
   的 `load_config` 缩进错误在 3–6 秒内 FAILED；已修正缩进并重新提交为 44245744–44245748。
+- **44245782 / 44245783**（Q-shuffled / Q-only）启动后 FAILED：分支 `train.py` 未解析 `--config`，
+  而是硬编码 `/root/autodl-tmp/CAARMA/config.yaml`。已改为 `ArgumentParser` 解析 `--config`，
+  重新提交为 44246165 / 44246166。
 
 ### 3.09 repro 调参锁定配方
 
