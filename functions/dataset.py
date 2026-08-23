@@ -98,7 +98,7 @@ class Evaluation_Dataset(Dataset):
 
     def __getitem__(self, idx):
         
-        waveform  = load_audio(self.root + self.paths[idx], -1)
+        waveform  = load_audio(os.path.join(self.root, self.paths[idx]), -1)
         sample = {
             'waveform': torch.FloatTensor(waveform),
             'path': os.path.join(self.root, self.paths[idx]),
