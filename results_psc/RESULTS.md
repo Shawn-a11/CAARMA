@@ -77,12 +77,12 @@ snapshot 的 rank 偏移 bug。
 | 44247841 | E2 Powered CRP β=0.75 | 10.97% / 0.7374 / 0.8337 |
 | 44247842 | Pure Natural-Cluster | 10.66% / 0.7324 / 0.8472 |
 | 44247843 | Powered CRP β=0.5 | 10.68% / 0.7241 / 0.8466 |
-| 44247915 | class-capacity ratio | 待出 |
-| 44247936 | sample ratio | 待出 |
-| 44247937 | Corrected Concat-D | 待出 |
-| 44247938 | Q-shuffled | 待出 |
-| 44247939 | Q-only | 待出 |
-| 44247951 | Cluster-Random-4 | 待出 |
+| 44247915 | class-capacity ratio | 7.18% / 0.5622 / 0.7076 |
+| 44247936 | sample ratio | 7.53% / 0.5744 / 0.7108 |
+| 44247937 | Corrected Concat-D | 7.07% / 0.6039 / 0.7852 |
+| 44247938 | Q-shuffled | 7.33% / 0.5741 / 0.6960 |
+| 44247939 | Q-only | PENDING（未出 Epoch 0） |
+| 44247951 | Cluster-Random-4 | PENDING（未出 Epoch 0） |
 
 > Epoch 0 的 EER 在 10% 左右是正常起点，后续 epoch 会快速下降。
 
