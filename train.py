@@ -382,6 +382,12 @@ def cli_main():
         ),
         help="YAML experiment configuration",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["train", "eval"],
+        default="train",
+        help="train: fit the model; eval: validate a checkpoint",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -476,22 +482,13 @@ def cli_main():
     )
 
     #————————————————————————————————————————————————————————————————————————
-    #trainer.fit(final_project, datamodule=dataloader)
-
-    # if config.get('checkpoint_path'):
-    #     trainer.fit(
-    #         final_project, 
-    #         datamodule=dataloader, 
-    #         ckpt_path=config['checkpoint_path']
-    #     )
-    # else:
-
-    #     trainer.fit(final_project, datamodule=dataloader)
-    
-    trainer.fit(final_project, datamodule=dataloader)
-
-    #print("\n--- Running Immediate Validation ---")
-    #trainer.validate(final_project, datamodule=dataloader, ckpt_path=config['checkpoint_path'])
+    if args.mode == "train":
+        trainer.fit(final_project, datamodule=dataloader)
+    elif args.mode == "eval":
+        if config['checkpoint_path'] == 'None':
+            raise ValueError("--mode eval requires config['checkpoint_path'] to be set")
+        print("\n--- Running final evaluation on {} ---".format(config['trial_path']))
+        trainer.validate(final_project, datamodule=dataloader, ckpt_path=config['checkpoint_path'])
     
 if __name__ == "__main__":
     cli_main()
