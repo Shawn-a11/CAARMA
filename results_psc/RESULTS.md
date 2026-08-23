@@ -86,6 +86,26 @@ snapshot 的 rank 偏移 bug。
 
 > Epoch 0 的 EER 在 10% 左右是正常起点，后续 epoch 会快速下降。
 
+### 当前最新进展（截至本次查询）
+
+| JobID | 实验臂 | 已完成 epoch | 最新 EER / minDCF(10⁻²) / minDCF(10⁻³) |
+|---|---|---|---|
+| 44235182 | 3.09 repro（调参） | Epoch 16 | 3.88% / 0.3875 / 0.4184 |
+| 44240592 | MLP-D dev-trial 选模 | Epoch 11 | 0.62% / 0.1138 / 0.2441 |
+| 44247839 | E0 Xavier control | Epoch 2 | 5.94% / 0.5041 / 0.6792 |
+| 44247840 | E1 SLERP initialization | Epoch 2 | 6.06% / 0.5141 / 0.6680 |
+| 44247841 | E2 Powered CRP β=0.75 | Epoch 2 | 6.05% / 0.5040 / 0.6259 |
+| 44247842 | Pure Natural-Cluster | Epoch 2 | 6.17% / 0.5444 / 0.7018 |
+| 44247843 | Powered CRP β=0.5 | Epoch 2 | 5.68% / 0.4934 / 0.5874 |
+| 44247915 | class-capacity ratio | Epoch 2 | 6.29% / 0.5077 / 0.6483 |
+| 44247936 | sample ratio | Epoch 2 | 5.86% / 0.5041 / 0.6298 |
+| 44247937 | Corrected Concat-D | Epoch 2 | 6.11% / 0.5103 / 0.6136 |
+| 44247938 | Q-shuffled | Epoch 2 | 6.16% / 0.5137 / 0.6937 |
+| 44247939 | Q-only | PENDING | — |
+| 44247951 | Cluster-Random-4 | PENDING | — |
+
+> 44240592 使用 dev-trial 口径，与 Vox1-O 主实验不直接可比。
+
 ### 已撤销 / 替换
 
 - **44235179–44235181**（CRP persistent / Projection-D / Natural-Cluster Projection-D 重复提交）已撤销。
