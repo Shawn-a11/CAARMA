@@ -143,6 +143,20 @@ snapshot 的 rank 偏移 bug。
 
 > `gamma07` 分支把 `train_source_faithful.py` 中硬编码的 `StepLR(..., gamma=0.5)` 改为从 config 读取，其余分支仅改 `config_psc_vox1.yaml`。
 
+### 2026-08-23 批次：VoxCeleb1 + VoxCeleb2 大规模复现（已提交，排队中）
+
+基于 `exp/psc-source-faithful-repro-309` 的大规模数据复现，对齐论文 Table 5。
+
+| JobID | 分支 | commit | 数据 | 状态 |
+|---|---|---|---|---|
+| 44273662 | `exp/psc-source-faithful-vox1v2` | `7d27e67` | Vox1 + Vox2 dev（1,240,651 句，7,205 人）| PENDING |
+
+配置要点：
+- 在 slurm 脚本中覆盖 `CAARMA_TRAIN_MANIFEST=/ocean/projects/cis220031p/sge2/caarma_runs/manifests/vox1v2_train.csv`
+- Vox1-O 40 个测试说话人已排除
+- 4×V100-32，walltime 48:00:00
+- 其余超参与 source-faithful Vox1 一致：`am_margin=0.20`, `am_scale=30`, `seed=42`
+
 > 44240592（MLP-D dev-trial 选模）best dev-trial EER 0.15%，但 Vox1-O final 3.91%，
 > 说明 dev-trial 口径与 Vox1-O 差距极大，不能混用。
 
