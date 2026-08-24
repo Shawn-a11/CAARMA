@@ -129,19 +129,25 @@ snapshot 的 rank 偏移 bug。
 | — | 44189004 | 3.09 source-faithful 复现 | **~3.49%** | — |
 | — | 44255041 | 3.09 source-faithful + am_margin 0.25 / 32 | **3.58%**（ep28） | 0.3367 / 0.4327 |
 
-### 2026-08-24 批次：3.09 复现调参（已提交，运行中）
+### 2026-08-24 批次：3.09 复现调参（部分完成）
 
 基于 `exp/psc-source-faithful-repro-309` 单变量调参，目标继续缩小与论文 3.09% 的差距。
 
-| JobID | 分支 | commit | 变动 | 基线 best EER |
-|---|---|---|---|---|
-| 44271497 | `exp/psc-source-faithful-seed0` | `868901d` | `seed: 0` | 3.49（seed=42） |
-| 44271529 | `exp/psc-source-faithful-m018` | `db48b88` | `am_margin: 0.18` | 3.49（margin=0.20） |
-| 44271551 | `exp/psc-source-faithful-m022` | `e7cf706` | `am_margin: 0.22` | 3.49（margin=0.20） |
-| 44271590 | `exp/psc-source-faithful-s28` | `8801ed9` | `am_scale: 28` | 3.49（scale=30） |
-| 44271618 | `exp/psc-source-faithful-gamma07` | `3414c15` | `lr_scheduler_gamma: 0.7` | 3.49（gamma=0.5） |
+| JobID | 分支 | commit | 变动 | 状态 | best EER | final EER |
+|---|---|---|---|---|---|---|
+| 44271497 | `exp/psc-source-faithful-seed0` | `868901d` | `seed: 0` | COMPLETED | **3.58**（ep27） | 3.63 |
+| 44271529 | `exp/psc-source-faithful-m018` | `db48b88` | `am_margin: 0.18` | RUNNING（ep22） | — | — |
+| 44271551 | `exp/psc-source-faithful-m022` | `e7cf706` | `am_margin: 0.22` | COMPLETED | **3.57**（ep23/28） | 3.64 |
+| 44271590 | `exp/psc-source-faithful-s28` | `8801ed9` | `am_scale: 28` | COMPLETED | **3.48**（ep30） | 3.48 |
+| 44271618 | `exp/psc-source-faithful-gamma07` | `3414c15` | `lr_scheduler_gamma: 0.7` | COMPLETED | **3.65**（ep25） | 3.79 |
 
 > `gamma07` 分支把 `train_source_faithful.py` 中硬编码的 `StepLR(..., gamma=0.5)` 改为从 config 读取，其余分支仅改 `config_psc_vox1.yaml`。
+
+**初步结论**：
+- `am_scale=28` 效果最好（3.48%），与 baseline（3.49%）持平。
+- `seed=0`（3.58%）和 `am_margin=0.22`（3.57%）略差于 baseline。
+- `lr_scheduler_gamma=0.7` 明显变差（best 3.65%），说明衰减不能放慢。
+- **仍未触及 3.09%**，当前最佳仍是 source-faithful seed=42 的 ~3.49%。
 
 ### 2026-08-23 批次：VoxCeleb1 + VoxCeleb2 大规模复现（已提交，排队中）
 

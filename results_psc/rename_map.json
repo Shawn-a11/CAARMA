@@ -350,5 +350,79 @@
     },
     "status": "COMPLETED",
     "notes": "3.09 reproduction tuning: am_margin=0.25, am_scale=32"
+  },
+  "44271497.json": {
+    "name": "23_source_faithful_seed0_44271497.json",
+    "experiment": "source-faithful seed=0",
+    "batch": "2026-08-24",
+    "branch": "exp/psc-source-faithful-seed0",
+    "commit": "868901d",
+    "metrics": {
+      "final_eer": 3.63,
+      "final_min_dcf_1e2": 0.3727,
+      "final_min_dcf_1e3": 0.4646,
+      "best_eer": 3.58,
+      "best_epoch": 27
+    },
+    "status": "COMPLETED",
+    "notes": "3.09 reproduction tuning: seed=0; baseline seed=42 best 3.49"
+  },
+  "44271529.json": {
+    "name": "24_source_faithful_m018_44271529.json",
+    "experiment": "source-faithful am_margin=0.18",
+    "batch": "2026-08-24",
+    "branch": "exp/psc-source-faithful-m018",
+    "commit": "db48b88",
+    "metrics": null,
+    "status": "RUNNING",
+    "notes": "3.09 reproduction tuning: am_margin=0.18; still running"
+  },
+  "44271551.json": {
+    "name": "25_source_faithful_m022_44271551.json",
+    "experiment": "source-faithful am_margin=0.22",
+    "batch": "2026-08-24",
+    "branch": "exp/psc-source-faithful-m022",
+    "commit": "e7cf706",
+    "metrics": {
+      "final_eer": 3.64,
+      "final_min_dcf_1e2": 0.3599,
+      "final_min_dcf_1e3": 0.4865,
+      "best_eer": 3.57,
+      "best_epoch": "23/28"
+    },
+    "status": "COMPLETED",
+    "notes": "3.09 reproduction tuning: am_margin=0.22"
+  },
+  "44271590.json": {
+    "name": "26_source_faithful_s28_44271590.json",
+    "experiment": "source-faithful am_scale=28",
+    "batch": "2026-08-24",
+    "branch": "exp/psc-source-faithful-s28",
+    "commit": "8801ed9",
+    "metrics": {
+      "final_eer": 3.48,
+      "final_min_dcf_1e2": 0.3545,
+      "final_min_dcf_1e3": 0.4288,
+      "best_eer": 3.48,
+      "best_epoch": 30
+    },
+    "status": "COMPLETED",
+    "notes": "3.09 reproduction tuning: am_scale=28; best result in this batch, ties baseline"
+  },
+  "44271618.json": {
+    "name": "27_source_faithful_gamma07_44271618.json",
+    "experiment": "source-faithful lr_scheduler_gamma=0.7",
+    "batch": "2026-08-24",
+    "branch": "exp/psc-source-faithful-gamma07",
+    "commit": "3414c15",
+    "metrics": {
+      "final_eer": 3.79,
+      "final_min_dcf_1e2": 0.3653,
+      "final_min_dcf_1e3": 0.4661,
+      "best_eer": 3.65,
+      "best_epoch": 25
+    },
+    "status": "COMPLETED",
+    "notes": "3.09 reproduction tuning: lr_scheduler_gamma=0.7; worse than baseline 0.5"
   }
 }

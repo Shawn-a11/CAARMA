@@ -1,0 +1,33 @@
+{
+  "COMMIT": "3414c15efcf095aa3a59eeec7707601d3fe9dec4",
+  "DEPENDENCY": "",
+  "DIRTY": "",
+  "ERROR_LOG": "/ocean/projects/cis220031p/sge2/logs/caarma-vox1-44271618.err",
+  "GPUS": "v100-32:4",
+  "JOB_ID": "44271618",
+  "JOB_NAME": "caarma-vox1",
+  "OUTPUT": "/ocean/projects/cis220031p/sge2/logs/caarma-vox1-44271618.out",
+  "REPO": "/jet/home/sge2/caarma_jobs/source-faithful-gamma07-3414c15",
+  "SCRIPT": "scripts/psc/train_vox1.slurm",
+  "WALLTIME": "12:00:00",
+  "_archive": {
+    "batch": "2026-08-24",
+    "branch": "exp/psc-source-faithful-gamma07",
+    "commit": "3414c15",
+    "experiment": "source-faithful lr_scheduler_gamma=0.7",
+    "metrics": {
+      "best_eer": 3.65,
+      "best_epoch": 25,
+      "final_eer": 3.79,
+      "final_min_dcf_1e2": 0.3653,
+      "final_min_dcf_1e3": 0.4661
+    },
+    "notes": "3.09 reproduction tuning: lr_scheduler_gamma=0.7; worse than baseline 0.5",
+    "raw_file": "archive/44271618.json",
+    "status": "COMPLETED"
+  },
+  "job_id": "44271618",
+  "ssh_host": "bridges2",
+  "submitted_at_utc": "2026-08-23T16:37:41.751405+00:00",
+  "updated_at_utc": "2026-08-23T16:37:41.752734+00:00"
+}
