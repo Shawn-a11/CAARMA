@@ -136,7 +136,7 @@ snapshot 的 rank 偏移 bug。
 | JobID | 分支 | commit | 变动 | 状态 | best EER | final EER |
 |---|---|---|---|---|---|---|
 | 44271497 | `exp/psc-source-faithful-seed0` | `868901d` | `seed: 0` | COMPLETED | **3.58**（ep27） | 3.63 |
-| 44271529 | `exp/psc-source-faithful-m018` | `db48b88` | `am_margin: 0.18` | RUNNING（ep22） | — | — |
+| 44271529 | `exp/psc-source-faithful-m018` | `db48b88` | `am_margin: 0.18` | COMPLETED | **3.69**（ep24） | 3.70 |
 | 44271551 | `exp/psc-source-faithful-m022` | `e7cf706` | `am_margin: 0.22` | COMPLETED | **3.57**（ep23/28） | 3.64 |
 | 44271590 | `exp/psc-source-faithful-s28` | `8801ed9` | `am_scale: 28` | COMPLETED | **3.48**（ep30） | 3.48 |
 | 44271618 | `exp/psc-source-faithful-gamma07` | `3414c15` | `lr_scheduler_gamma: 0.7` | COMPLETED | **3.65**（ep25） | 3.79 |
@@ -145,7 +145,7 @@ snapshot 的 rank 偏移 bug。
 
 **初步结论**：
 - `am_scale=28` 效果最好（3.48%），与 baseline（3.49%）持平。
-- `seed=0`（3.58%）和 `am_margin=0.22`（3.57%）略差于 baseline。
+- `seed=0`（3.58%）、`am_margin=0.18`（3.69%）和 `am_margin=0.22`（3.57%）均差于 baseline。
 - `lr_scheduler_gamma=0.7` 明显变差（best 3.65%），说明衰减不能放慢。
 - **仍未触及 3.09%**，当前最佳仍是 source-faithful seed=42 的 ~3.49%。
 
@@ -155,8 +155,8 @@ snapshot 的 rank 偏移 bug。
 
 | JobID | 分支 | commit | 改动 | 状态 |
 |---|---|---|---|---|
-| 44303548 | `exp/psc-source-faithful-s26` | `f777ba1` | `am_scale: 26` | RUNNING |
-| 44303549 | `exp/psc-source-faithful-s34` | `0d8a876` | `am_scale: 34` | RUNNING |
+| 44303548 | `exp/psc-source-faithful-s26` | `f777ba1` | `am_scale: 26` | RUNNING（ep25+） | **~3.65** | — |
+| 44303549 | `exp/psc-source-faithful-s34` | `0d8a876` | `am_scale: 34` | COMPLETED | **3.61**（ep26） | 3.67 |
 | 44303550 | `exp/psc-source-faithful-s32` | `29d036d` | `am_scale: 32`（margin=0.20） | PENDING |
 | 44303564 | `exp/psc-source-faithful-m015` | `b784581` | `am_margin: 0.15` | **FAILED**（v010 NCCL timeout） |
 | 44303579 | `exp/psc-source-faithful-seed123` | `4cdae7c` | `seed: 123` | **FAILED**（v010 NCCL timeout） |
@@ -165,7 +165,11 @@ snapshot 的 rank 偏移 bug。
 
 > 上一批 `am_scale=32` 是与 `am_margin=0.25` 组合跑的（3.58%）；本次 `am_scale=32` 保持 margin=0.20，确认 scale 32 本身是否有效。
 
-**v010 NCCL 超时故障**：44303564 与 44303579 均分配到节点 `v010`，运行约 30 分钟后因
+**第二批次初步结果**：
+- `am_scale=34`（44303549）best **3.61%**，final 3.67%，差于 `am_scale=28`（3.48%），说明继续增大 scale 收益有限。
+- `am_scale=26`（44303548）仍在跑，当前可见最优约 **3.65%**。
+
+**v010 NCCL 超时故障**：44303564、44303579、44305817 均分配到节点 `v010`，运行约 30 分钟后因
 `Watchdog caught collective operation timeout`（all_reduce 30 分钟超时）失败。同一代码在
 v004/v014 正常运行，判断为 `v010` 节点 DDP/NCCL 互联故障而非代码问题。已创建带
 `#SBATCH --exclude=v010` 的新分支并重跑。
@@ -179,7 +183,7 @@ v004/v014 正常运行，判断为 `v010` 节点 DDP/NCCL 互联故障而非代�
 | JobID | 实验 | 分支 / commit | 目标 | 状态 |
 |---|---|---|---|---|
 | 44305815 | 主链 Concat-D 重跑 | `exp/psc-concat-crp-persistent-synth` @ `5fdee43` | 历史 3.51；PSC 首次 3.50 | PENDING |
-| 44305817 | E3 Natural-Cluster Projection-D 重跑 | `exp/psc-e3-natural-cluster-projection` @ `82c98b2` | 历史 3.25；PSC 首次 3.47 | PENDING |
+| 44305817 | E3 Natural-Cluster Projection-D 重跑 | `exp/psc-e3-natural-cluster-projection` @ `82c98b2` | 历史 3.25；PSC 首次 3.47 | **FAILED**（v010 NCCL timeout） |
 | 44305822 | Pure Natural-Cluster 重跑 | `exp/psc-pure-natural-cluster` @ `2e3b0fc` | 历史 3.38；PSC 首次 3.59 | PENDING |
 | 44305823 | Powered CRP β=0.75 重跑 | `exp/psc-e2-powered-crp-beta75` @ `9ad4f2a` | 历史 3.50；PSC 首次 3.58 | PENDING |
 | 44305825 | Powered CRP β=0.5 重跑 | `exp/psc-powered-crp-beta05` @ `844460d` | 历史 3.43；PSC 首次 3.64 | PENDING |
