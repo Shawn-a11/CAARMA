@@ -156,12 +156,35 @@ snapshot 的 rank 偏移 bug。
 | JobID | 分支 | commit | 改动 | 状态 |
 |---|---|---|---|---|
 | 44303548 | `exp/psc-source-faithful-s26` | `f777ba1` | `am_scale: 26` | PENDING |
-| 44303549 | `exp/psc-source-faithful-s34` | `0d8a876` | `am_scale: 34` | PENDING |
+| 44303549 | `exp/psc-source-faithful-s34` | `0d8a876` | `am_scale: 34` | RUNNING |
 | 44303550 | `exp/psc-source-faithful-s32` | `29d036d` | `am_scale: 32`（margin=0.20） | PENDING |
 | 44303564 | `exp/psc-source-faithful-m015` | `b784581` | `am_margin: 0.15` | PENDING |
 | 44303579 | `exp/psc-source-faithful-seed123` | `4cdae7c` | `seed: 123` | PENDING |
 
 > 上一批 `am_scale=32` 是与 `am_margin=0.25` 组合跑的（3.58%）；本次 `am_scale=32` 保持 margin=0.20，确认 scale 32 本身是否有效。
+
+### 2026-08-24 第三批次：方法链重跑 + LERP→SLERP 验证（已提交）
+
+把在 HTML 方法链/历史 AutoDL 中曾有效、但 PSC 锁定运行时下表现不佳的 5 个实验重跑一次，
+同时基于当前最佳复现配置（source-faithful `am_scale=28`）把 mixup 中的 Euclidean averaging
+改成 SLERP，验证球面插值是否优于 LERP。
+
+| JobID | 实验 | 分支 / commit | 目标 | 状态 |
+|---|---|---|---|---|
+| 44305815 | 主链 Concat-D 重跑 | `exp/psc-concat-crp-persistent-synth` @ `5fdee43` | 历史 3.51；PSC 首次 3.50 | PENDING |
+| 44305817 | E3 Natural-Cluster Projection-D 重跑 | `exp/psc-e3-natural-cluster-projection` @ `82c98b2` | 历史 3.25；PSC 首次 3.47 | PENDING |
+| 44305822 | Pure Natural-Cluster 重跑 | `exp/psc-pure-natural-cluster` @ `2e3b0fc` | 历史 3.38；PSC 首次 3.59 | PENDING |
+| 44305823 | Powered CRP β=0.75 重跑 | `exp/psc-e2-powered-crp-beta75` @ `9ad4f2a` | 历史 3.50；PSC 首次 3.58 | PENDING |
+| 44305825 | Powered CRP β=0.5 重跑 | `exp/psc-powered-crp-beta05` @ `844460d` | 历史 3.43；PSC 首次 3.64 | PENDING |
+| 44305909 | source-faithful s28 LERP→SLERP | `exp/psc-source-faithful-s28-slerp` @ `f2def0f` | 在 3.48 配置上将 mixup 改为 SLERP | PENDING |
+
+> 远端仓库路径：
+> - `/jet/home/sge2/caarma_jobs/psc-concat-crp-persistent-synth-5fdee43`
+> - `/jet/home/sge2/caarma_jobs/psc-e3-natural-cluster-projection-82c98b2`
+> - `/jet/home/sge2/caarma_jobs/psc-pure-natural-cluster-2e3b0fc-rerun1`
+> - `/jet/home/sge2/caarma_jobs/psc-e2-powered-crp-beta75-9ad4f2a-rerun1`
+> - `/jet/home/sge2/caarma_jobs/psc-powered-crp-beta05-844460d-rerun1`
+> - `/jet/home/sge2/caarma_jobs/psc-source-faithful-s28-slerp-f2def0f`
 
 ### 2026-08-23 批次：VoxCeleb1 + VoxCeleb2 大规模复现（已提交，排队中）
 
