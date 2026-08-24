@@ -149,6 +149,20 @@ snapshot 的 rank 偏移 bug。
 - `lr_scheduler_gamma=0.7` 明显变差（best 3.65%），说明衰减不能放慢。
 - **仍未触及 3.09%**，当前最佳仍是 source-faithful seed=42 的 ~3.49%。
 
+### 2026-08-24 第二批次：继续 3.09 复现调参（已提交，排队中）
+
+基于第一批结果，`am_scale=28` 与 baseline 持平，继续在 scale / margin / seed 附近探索。
+
+| JobID | 分支 | commit | 改动 | 状态 |
+|---|---|---|---|---|
+| 44303548 | `exp/psc-source-faithful-s26` | `f777ba1` | `am_scale: 26` | PENDING |
+| 44303549 | `exp/psc-source-faithful-s34` | `0d8a876` | `am_scale: 34` | PENDING |
+| 44303550 | `exp/psc-source-faithful-s32` | `29d036d` | `am_scale: 32`（margin=0.20） | PENDING |
+| 44303564 | `exp/psc-source-faithful-m015` | `b784581` | `am_margin: 0.15` | PENDING |
+| 44303579 | `exp/psc-source-faithful-seed123` | `4cdae7c` | `seed: 123` | PENDING |
+
+> 上一批 `am_scale=32` 是与 `am_margin=0.25` 组合跑的（3.58%）；本次 `am_scale=32` 保持 margin=0.20，确认 scale 32 本身是否有效。
+
 ### 2026-08-23 批次：VoxCeleb1 + VoxCeleb2 大规模复现（已提交，排队中）
 
 基于 `exp/psc-source-faithful-repro-309` 的大规模数据复现，对齐论文 Table 5。
