@@ -36,5 +36,5 @@ save_top_k: 3
 devices: 4
 num_nodes: 1
 precision: "16-mixed"
-seed: 42
+seed: 123
 title: "caarma_original_vox1_psc"
