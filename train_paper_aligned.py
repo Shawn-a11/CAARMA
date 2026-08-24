@@ -55,6 +55,7 @@ from criterion.build_criterion import build_criterion
 from model.model_build import build_model
 from model.discriminator_mix import MixupDiscriminator
 from helper.config_utils import load_experiment_config
+from helper.gan_controls import generator_lambda_plan, scheduled_updates
 
 from scipy.interpolate import interp1d
 from sklearn.metrics import roc_curve
@@ -98,9 +99,43 @@ class Task(LightningModule):
             self._ddp_params_and_buffers_to_ignore = hubert_ignore
 
         # ── source hyperparameters (do not touch without re-running ablation) ──
-        self.lambda_adv = float(self.config.get("lambda_adv_init", 0.25))
+        self.lambda_adv_init = float(self.config.get("lambda_adv_init", 0.25))
+        self.lambda_adv = self.lambda_adv_init
         self.lambda_adv_floor = float(self.config.get("lambda_adv_floor", 0.0001))
         self.lambda_adv_cap = float(self.config.get("lambda_adv_cap", 0.01))
+        self.lambda_adv_mode = str(self.config.get("lambda_adv_mode", "dynamic"))
+        self.lambda_adv_fixed = float(self.config.get("lambda_adv_fixed", 0.05))
+        self.lambda_adv_pretrain = float(
+            self.config.get("lambda_adv_pretrain", 0.0005)
+        )
+        self.gan_schedule = str(self.config.get("gan_schedule", "paired"))
+        self.pretrain_epochs = int(self.config.get("pretrain_epochs", 15))
+        self.pretrain_g_steps = int(self.config.get("pretrain_g_steps", 5))
+
+        # Validate controls before the first distributed forward.
+        scheduled_updates(
+            self.gan_schedule,
+            epoch=0,
+            batch_idx=0,
+            pretrain_epochs=self.pretrain_epochs,
+            pretrain_g_steps=self.pretrain_g_steps,
+        )
+        generator_lambda_plan(
+            self.lambda_adv_mode,
+            self.lambda_adv_fixed,
+            self.lambda_adv_init,
+            self.lambda_adv_pretrain,
+            use_pretrain_value=False,
+        )
+        print(
+            "Paper-aligned GAN controls "
+            f"schedule={self.gan_schedule} "
+            f"pretrain_epochs={self.pretrain_epochs} "
+            f"pretrain_g_steps={self.pretrain_g_steps} "
+            f"lambda_mode={self.lambda_adv_mode} "
+            f"lambda_fixed={self.lambda_adv_fixed:.6f} "
+            f"discriminator_lr={float(self.config.get('discriminator_lr', 0.0002)):.6f}"
+        )
 
     def normalize(self, x):
         x_norm = torch.norm(x, p=2, dim=1, keepdim=True).clamp(min=1e-12)
@@ -213,14 +248,46 @@ class Task(LightningModule):
         waveform = batch['waveform']
         label = batch['mapped_id']
 
-        self._d_step(opt_d, waveform, label)
-        return self._g_step(
-            opt_main,
-            waveform,
-            label,
-            lambda_adv_value=self.lambda_adv,
-            adjust=True,
+        updates = scheduled_updates(
+            self.gan_schedule,
+            epoch=self.current_epoch,
+            batch_idx=batch_idx,
+            pretrain_epochs=self.pretrain_epochs,
+            pretrain_g_steps=self.pretrain_g_steps,
         )
+        result = None
+        for update in updates:
+            if update == "d":
+                result = self._d_step(opt_d, waveform, label)
+                continue
+
+            use_pretrain_value = (
+                self.gan_schedule == "source_state_machine"
+                and self.current_epoch <= self.pretrain_epochs
+            )
+            # The paired 3.39 control carries the adjusted value across
+            # batches. The public source state machine resets to its initial
+            # post-pretrain value before each dynamic G update.
+            dynamic_value = (
+                self.lambda_adv_init
+                if self.gan_schedule == "source_state_machine"
+                else self.lambda_adv
+            )
+            lambda_value, adjust = generator_lambda_plan(
+                self.lambda_adv_mode,
+                self.lambda_adv_fixed,
+                dynamic_value,
+                self.lambda_adv_pretrain,
+                use_pretrain_value=use_pretrain_value,
+            )
+            result = self._g_step(
+                opt_main,
+                waveform,
+                label,
+                lambda_adv_value=lambda_value,
+                adjust=adjust,
+            )
+        return result
 
     def configure_optimizers(self):
         embedding_optimizer = AdamW(
