@@ -2,6 +2,7 @@
 #SBATCH --account=cis220031p
 #SBATCH --job-name=caarma-vox1
 #SBATCH --partition=GPU-shared
+#SBATCH --exclude=v010
 #SBATCH --gpus=v100-32:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
