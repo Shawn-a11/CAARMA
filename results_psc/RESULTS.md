@@ -155,13 +155,20 @@ snapshot 的 rank 偏移 bug。
 
 | JobID | 分支 | commit | 改动 | 状态 |
 |---|---|---|---|---|
-| 44303548 | `exp/psc-source-faithful-s26` | `f777ba1` | `am_scale: 26` | PENDING |
+| 44303548 | `exp/psc-source-faithful-s26` | `f777ba1` | `am_scale: 26` | RUNNING |
 | 44303549 | `exp/psc-source-faithful-s34` | `0d8a876` | `am_scale: 34` | RUNNING |
 | 44303550 | `exp/psc-source-faithful-s32` | `29d036d` | `am_scale: 32`（margin=0.20） | PENDING |
-| 44303564 | `exp/psc-source-faithful-m015` | `b784581` | `am_margin: 0.15` | PENDING |
-| 44303579 | `exp/psc-source-faithful-seed123` | `4cdae7c` | `seed: 123` | PENDING |
+| 44303564 | `exp/psc-source-faithful-m015` | `b784581` | `am_margin: 0.15` | **FAILED**（v010 NCCL timeout） |
+| 44303579 | `exp/psc-source-faithful-seed123` | `4cdae7c` | `seed: 123` | **FAILED**（v010 NCCL timeout） |
+| 44313669 | `exp/psc-source-faithful-m015-exclude-v010` | `2e20d80` | `am_margin: 0.15`，排除 v010 | PENDING（重跑） |
+| 44313670 | `exp/psc-source-faithful-seed123-exclude-v010` | `2b1ce46` | `seed: 123`，排除 v010 | PENDING（重跑） |
 
 > 上一批 `am_scale=32` 是与 `am_margin=0.25` 组合跑的（3.58%）；本次 `am_scale=32` 保持 margin=0.20，确认 scale 32 本身是否有效。
+
+**v010 NCCL 超时故障**：44303564 与 44303579 均分配到节点 `v010`，运行约 30 分钟后因
+`Watchdog caught collective operation timeout`（all_reduce 30 分钟超时）失败。同一代码在
+v004/v014 正常运行，判断为 `v010` 节点 DDP/NCCL 互联故障而非代码问题。已创建带
+`#SBATCH --exclude=v010` 的新分支并重跑。
 
 ### 2026-08-24 第三批次：方法链重跑 + LERP→SLERP 验证（已提交）
 
