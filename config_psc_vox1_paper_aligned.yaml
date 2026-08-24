@@ -9,7 +9,7 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/caarma_paper_aligned_vox1/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/paper_aligned_lambda001/checkpoints"
 hubert_cache_dir: "${CAARMA_HUBERT_CACHE}"
 hubert_model_name: "facebook/hubert-large-ls960-ft"
 
@@ -33,8 +33,8 @@ freeze_hubert: false
 lambda_adv_init: 0.25
 lambda_adv_floor: 0.0001
 lambda_adv_cap: 0.01
-lambda_adv_mode: "dynamic"
-lambda_adv_fixed: 0.05
+lambda_adv_mode: "fixed"
+lambda_adv_fixed: 0.01
 lambda_adv_pretrain: 0.0005
 gan_schedule: "paired"
 pretrain_epochs: 15
@@ -45,4 +45,4 @@ devices: 4
 num_nodes: 1
 precision: "16-mixed"
 seed: 42
-title: "caarma_paper_aligned_vox1_psc"
+title: "paper_aligned_lambda001_seed42"

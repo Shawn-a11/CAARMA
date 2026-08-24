@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=caarma-paper
+#SBATCH --job-name=paper-l001
 #SBATCH --partition=GPU-shared
 #SBATCH --gpus=v100-32:4
 #SBATCH --nodes=1
@@ -25,7 +25,7 @@ test -f config_psc_vox1_paper_aligned.yaml
 test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
-mkdir -p "$CAARMA_RUN_ROOT/caarma_paper_aligned_vox1/checkpoints"
+mkdir -p "$CAARMA_RUN_ROOT/paper_aligned_lambda001/checkpoints"
 
 export OMP_NUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false
