@@ -11,10 +11,10 @@ from sklearn.utils import shuffle
 from torch.utils.data import DataLoader, Dataset
 import soundfile as sf
 
-import torchaudio
+from .audio_io import load_audio_file
 
 def load_audio(filename, second=3):
-    waveform, sr = torchaudio.load(filename)
+    waveform, sr = load_audio_file(filename)
     waveform = waveform.squeeze(0)  # Remove channel dimension if mono
 
     audio_length = waveform.shape[0]

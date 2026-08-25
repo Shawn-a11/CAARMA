@@ -15,6 +15,7 @@ set -euo pipefail
 
 REPO_ROOT="${CAARMA_JOB_REPO:-${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR is required}}"
 module load anaconda3
+module load ffmpeg/4.3.1
 source /jet/home/sge2/caarma_psc_env.sh
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$CAARMA_CONDA_ENV"
@@ -38,6 +39,34 @@ export XDG_CACHE_HOME="$CAARMA_RUN_ROOT/cache"
 mkdir -p "$XDG_CACHE_HOME"
 
 python -c "import train_source_faithful; print('CAARMA source-faithful import OK')"
+
+python - <<'PY'
+import os
+
+import pandas as pd
+import torchaudio
+
+from functions.audio_io import load_audio_file
+
+manifest = pd.read_csv(os.environ["CAARMA_TRAIN_MANIFEST"])
+m4a_paths = manifest.loc[
+    manifest["utt_paths"].str.lower().str.endswith(".m4a"), "utt_paths"
+]
+if m4a_paths.empty:
+    raise RuntimeError("The Vox1+2 manifest contains no M4A files to validate")
+
+probe_path = m4a_paths.iloc[0]
+waveform, sample_rate = load_audio_file(probe_path)
+print("TorchAudio backends:", torchaudio.list_audio_backends())
+print(
+    "VoxCeleb2 M4A decode ready:",
+    probe_path,
+    "shape=",
+    tuple(waveform.shape),
+    "sample_rate=",
+    sample_rate,
+)
+PY
 
 python - <<'PY'
 import os
