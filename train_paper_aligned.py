@@ -36,6 +36,7 @@ the deadlock root causes we already paid for)
     rank-desync issues with gradient scaler).
 """
 from argparse import ArgumentParser
+import json
 import os
 
 import torch
@@ -55,7 +56,11 @@ from criterion.build_criterion import build_criterion
 from model.model_build import build_model
 from model.discriminator_mix import MixupDiscriminator
 from helper.config_utils import load_experiment_config
-from helper.gan_controls import generator_lambda_plan, scheduled_updates
+from helper.gan_controls import (
+    generator_lambda_plan,
+    resolve_gan_config,
+    scheduled_updates,
+)
 
 from scipy.interpolate import interp1d
 from sklearn.metrics import roc_curve
@@ -98,19 +103,22 @@ class Task(LightningModule):
                 hubert_ignore.append(f"discriminator.hubert.{name}")
             self._ddp_params_and_buffers_to_ignore = hubert_ignore
 
-        # ── source hyperparameters (do not touch without re-running ablation) ──
-        self.lambda_adv_init = float(self.config.get("lambda_adv_init", 0.25))
-        self.lambda_adv = self.lambda_adv_init
-        self.lambda_adv_floor = float(self.config.get("lambda_adv_floor", 0.0001))
-        self.lambda_adv_cap = float(self.config.get("lambda_adv_cap", 0.01))
-        self.lambda_adv_mode = str(self.config.get("lambda_adv_mode", "dynamic"))
-        self.lambda_adv_fixed = float(self.config.get("lambda_adv_fixed", 0.05))
-        self.lambda_adv_pretrain = float(
-            self.config.get("lambda_adv_pretrain", 0.0005)
+        effective_gan_config = resolve_gan_config(
+            self.config,
+            main_lr=self.learning_rate,
+            weight_decay=self.weight_decay,
         )
-        self.gan_schedule = str(self.config.get("gan_schedule", "paired"))
-        self.pretrain_epochs = int(self.config.get("pretrain_epochs", 15))
-        self.pretrain_g_steps = int(self.config.get("pretrain_g_steps", 5))
+        self.discriminator_lr = effective_gan_config["discriminator_lr"]
+        self.lambda_adv_init = effective_gan_config["lambda_adv_init"]
+        self.lambda_adv = self.lambda_adv_init
+        self.lambda_adv_floor = effective_gan_config["lambda_adv_floor"]
+        self.lambda_adv_cap = effective_gan_config["lambda_adv_cap"]
+        self.lambda_adv_mode = effective_gan_config["lambda_adv_mode"]
+        self.lambda_adv_fixed = effective_gan_config["lambda_adv_fixed"]
+        self.lambda_adv_pretrain = effective_gan_config["lambda_adv_pretrain"]
+        self.gan_schedule = effective_gan_config["gan_schedule"]
+        self.pretrain_epochs = effective_gan_config["pretrain_epochs"]
+        self.pretrain_g_steps = effective_gan_config["pretrain_g_steps"]
 
         # Validate controls before the first distributed forward.
         scheduled_updates(
@@ -128,13 +136,8 @@ class Task(LightningModule):
             use_pretrain_value=False,
         )
         print(
-            "Paper-aligned GAN controls "
-            f"schedule={self.gan_schedule} "
-            f"pretrain_epochs={self.pretrain_epochs} "
-            f"pretrain_g_steps={self.pretrain_g_steps} "
-            f"lambda_mode={self.lambda_adv_mode} "
-            f"lambda_fixed={self.lambda_adv_fixed:.6f} "
-            f"discriminator_lr={float(self.config.get('discriminator_lr', 0.0002)):.6f}"
+            "EFFECTIVE_GAN_CONFIG "
+            + json.dumps(effective_gan_config, sort_keys=True)
         )
 
     def normalize(self, x):
@@ -240,6 +243,7 @@ class Task(LightningModule):
         self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True, sync_dist=False)
         self.log('acc', acc, prog_bar=True, sync_dist=False)
         self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
+        self.log('lambda_adv', float(self.lambda_adv), prog_bar=False, sync_dist=False)
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         return total_loss
 
@@ -298,7 +302,7 @@ class Task(LightningModule):
         )
         discriminator_optimizer = AdamW(
             self.discriminator.parameters(),
-            lr=float(self.config.get("discriminator_lr", 0.0002)),
+            lr=self.discriminator_lr,
             weight_decay=self.weight_decay,
             betas=(0.5, 0.999),
         )
