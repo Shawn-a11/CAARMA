@@ -3,7 +3,7 @@
 #SBATCH --job-name=caarma-m4a-probe
 #SBATCH --partition=GPU-shared
 #SBATCH --exclude=v010
-#SBATCH --gpus=v100-32:1
+#SBATCH --gpus=v100-16:1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
