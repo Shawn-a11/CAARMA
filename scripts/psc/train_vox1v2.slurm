@@ -15,11 +15,15 @@ set -euo pipefail
 
 REPO_ROOT="${CAARMA_JOB_REPO:-${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR is required}}"
 module load anaconda3
-module load ffmpeg/4.3.1
 source /jet/home/sge2/caarma_psc_env.sh
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$CAARMA_CONDA_ENV"
 cd "$REPO_ROOT"
+
+PYAV_VENDOR="${CAARMA_PYAV_VENDOR:-$CAARMA_RUN_ROOT/vendor/pyav-12.3.0}"
+test -d "$PYAV_VENDOR"
+export PYTHONPATH="$PYAV_VENDOR:$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+python -c "import av; print('PyAV ready:', av.__version__)"
 
 # Override manifest to use the combined VoxCeleb1 + VoxCeleb2 training set.
 export CAARMA_TRAIN_MANIFEST=/ocean/projects/cis220031p/sge2/caarma_runs/manifests/vox1v2_train.csv
@@ -44,8 +48,6 @@ python - <<'PY'
 import os
 
 import pandas as pd
-import torchaudio
-
 from functions.audio_io import load_audio_file
 
 manifest = pd.read_csv(os.environ["CAARMA_TRAIN_MANIFEST"])
@@ -57,7 +59,6 @@ if m4a_paths.empty:
 
 probe_path = m4a_paths.iloc[0]
 waveform, sample_rate = load_audio_file(probe_path)
-print("TorchAudio backends:", torchaudio.list_audio_backends())
 print(
     "VoxCeleb2 M4A decode ready:",
     probe_path,
