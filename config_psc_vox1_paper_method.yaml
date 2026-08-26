@@ -1,0 +1,57 @@
+model: "MFA-CONFORMER"
+features: "Fbank"
+augmentations:
+  add_noise: false
+  add_reverb: false
+  drop_freq: false
+  drop_chunk: false
+
+dataset: "${CAARMA_TRAIN_MANIFEST}"
+trial_path: "${CAARMA_TRIAL_PATH}"
+root: "${CAARMA_VOX1_EVAL_ROOT}"
+save_dir: "${CAARMA_RUN_ROOT}/paper_aligned_crp_projection_slerpinit/checkpoints"
+hubert_cache_dir: "${CAARMA_HUBERT_CACHE}"
+hubert_model_name: "facebook/hubert-large-ls960-ft"
+
+USE_WANDB: false
+criterion: "AMSoftmaxGAN"
+init_lr: 0.001
+discriminator_lr: 0.0002
+epochs: 30
+weight_decay: 0.0000001
+warmup_step: 2000
+batch_size: 50
+num_workers: 4
+second: 3
+do_augmentation: false
+num_spk: "auto"
+mixup: true
+embedding_dim: 192
+am_margin: 0.2
+am_scale: 30
+freeze_hubert: false
+lambda_adv_init: 0.25
+lambda_adv_floor: 0.0001
+lambda_adv_cap: 0.01
+checkpoint_path: "None"
+save_top_k: 3
+devices: 4
+num_nodes: 1
+precision: "16-mixed"
+seed: 42
+
+# P3b: explicitly score embedding-prototype compatibility with Projection-D.
+persistence: true
+slerp_t: 0.5
+synth_bank_size: 10
+synth_max_factor: 4
+pair_strategy: "crp"
+crp_alpha: 1.0
+crp_topk: 4
+reuse_policy: "popularity"
+reuse_power: 1.0
+candidate_pool: "topk"
+cluster_size: 8
+synth_init: "slerp_parents"
+discriminator_type: "projection"
+title: "paper_aligned_crp_projection_slerpinit"
