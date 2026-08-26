@@ -43,12 +43,17 @@ class Task(LightningModule):
         self.features = features
         self.model = model
         self.loss = loss
-        self.loss_syn = loss
         self.config = config
         self.learning_rate = float(learning_rate)
         self.weight_decay = float(weight_decay)
         self.trials = np.loadtxt(trial_path, str)
+        self.syn_loss_scale = 1.0 / float(self.config['num_spk'])
         self.automatic_optimization = False
+        print(
+            'L_syn scale: 1 / {} = {:.10f}'.format(
+                self.config['num_spk'], self.syn_loss_scale
+            )
+        )
 
     def forward(self, waveform):
         return self.model(self.features(waveform))
@@ -57,10 +62,11 @@ class Task(LightningModule):
         optimizer = self.optimizers()
         embedding = self(batch['waveform'])
         am_loss, acc, _ = self.loss(embedding, batch['mapped_id'])
-        syn_loss, _, _ = self.loss_syn(
+        syn_loss, syn_acc, _ = self.loss(
             embedding, batch['mapped_id'], flagSyn=True
         )
-        total_loss = am_loss + (1.0 / self.config['num_spk']) * syn_loss
+        scaled_syn_loss = self.syn_loss_scale * syn_loss
+        total_loss = am_loss + scaled_syn_loss
 
         optimizer.zero_grad()
         self.manual_backward(total_loss)
@@ -77,6 +83,14 @@ class Task(LightningModule):
 
         self.log('am_loss', am_loss, prog_bar=True, sync_dist=False)
         self.log('am_loss_syn', syn_loss, prog_bar=True, sync_dist=False)
+        self.log('scaled_lsyn', scaled_syn_loss, prog_bar=True, sync_dist=False)
+        self.log('syn_acc', syn_acc, prog_bar=False, sync_dist=False)
+        self.log(
+            'lsyn_fraction',
+            scaled_syn_loss.detach() / am_loss.detach().clamp_min(1e-12),
+            prog_bar=False,
+            sync_dist=False,
+        )
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         self.log('acc', acc, prog_bar=True, sync_dist=False)
         return total_loss

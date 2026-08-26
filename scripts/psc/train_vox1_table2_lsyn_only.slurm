@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=caarma-t2-lsyn
+#SBATCH --job-name=caarma-t2-lsyn-fix
 #SBATCH --partition=GPU-shared
 #SBATCH --gpus=v100-32:4
 #SBATCH --exclude=v010
@@ -25,7 +25,7 @@ test -f config_psc_vox1_table2_lsyn_only.yaml
 test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
-mkdir -p "$CAARMA_RUN_ROOT/paper_table2_id2_lsyn_only/checkpoints"
+mkdir -p "$CAARMA_RUN_ROOT/paper_table2_id2_lsyn_only_audited/checkpoints"
 
 export OMP_NUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false
@@ -34,7 +34,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 echo "CAARMA job repo: $REPO_ROOT"
 echo "CAARMA method commit: ${CAARMA_METHOD_COMMIT:-archive-snapshot}"
-echo "Paper reproduction: Table 2 ID2, MFA-Conformer + L_syn only"
+echo "Paper reproduction: audited Table 2 ID2, MFA-Conformer + L_syn only"
 srun python -u train_lsyn_only.py \
   --config config_psc_vox1_table2_lsyn_only.yaml \
   --devices 4
