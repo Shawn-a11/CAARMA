@@ -38,8 +38,10 @@ num_nodes: 1
 precision: "16-mixed"
 seed: 42
 
-# Single experimental variable: persistent CRP synthetic identities.
+# Single experimental variable: persistent CRP synthetic identities. The
+# original CAARMA linear interpolation is retained for a clean control.
 persistence: true
+interpolation: "lerp"
 slerp_t: 0.5
 synth_bank_size: 10
 synth_max_factor: 4

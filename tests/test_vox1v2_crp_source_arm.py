@@ -36,12 +36,17 @@ class Vox1V2CrpSourceArmTest(unittest.TestCase):
             self.assertEqual(pattern.search(base).group(1), pattern.search(crp).group(1))
         for expected in (
             'persistence: true',
+            'interpolation: "lerp"',
             'pair_strategy: "crp"',
             'reuse_policy: "popularity"',
             'candidate_pool: "topk"',
             'synth_init: "xavier"',
         ):
             self.assertIn(expected, crp)
+
+        criterion = (ROOT / "criterion/amsoftmax_mix_gan.py").read_text()
+        self.assertIn('self.interpolation == "lerp"', criterion)
+        self.assertIn("return interpolation(p0, p1, self.slerp_t)", criterion)
 
     def test_launcher_is_isolated_and_excludes_v010(self):
         launcher = (

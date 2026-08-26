@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .utils import accuracy
-from helper.synth_table import slerp, PersistentSynthState
+from helper.synth_table import lerp, slerp, PersistentSynthState
 
 
 class amsoftmax_gan(nn.Module):
@@ -36,6 +36,7 @@ class amsoftmax_gan(nn.Module):
                  synth_max_factor=4, pair_strategy="fixed_nn", crp_alpha=1.0,
                  crp_topk=4, reuse_policy="popularity", synth_init="xavier",
                  reuse_power=1.0, candidate_pool="topk", cluster_size=8,
+                 interpolation="slerp",
                  **kwargs):
         super(amsoftmax_gan, self).__init__()
         self.m = margin
@@ -49,6 +50,11 @@ class amsoftmax_gan(nn.Module):
 
         self.persistence = bool(persistence)
         self.slerp_t = float(slerp_t)
+        self.interpolation = str(interpolation).lower()
+        if self.interpolation not in ("lerp", "slerp"):
+            raise ValueError(
+                f"interpolation must be 'lerp' or 'slerp', got {interpolation!r}"
+            )
         self.synth_init = str(synth_init)
         if self.synth_init not in ("xavier", "slerp_parents"):
             raise ValueError(f"Unknown synth_init: {self.synth_init!r}")
@@ -72,17 +78,17 @@ class amsoftmax_gan(nn.Module):
                                               reuse_power=reuse_power,
                                               candidate_pool=candidate_pool,
                                               cluster_size=cluster_size)
-            print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f slerp_t=%.2f '
+            print('Initialised PERSISTENT AM-Softmax m=%.3f s=%.3f interpolation=%s t=%.2f '
                   'max_cols=%d bank=%d pair_strategy=%s crp_alpha=%.3f '
                   'crp_topk=%d reuse_policy=%s reuse_power=%.3f '
                   'candidate_pool=%s cluster_size=%d synth_init=%s'
-                  % (self.m, self.s, self.slerp_t, self.max_cols,
+                  % (self.m, self.s, self.interpolation, self.slerp_t, self.max_cols,
                      synth_bank_size, pair_strategy, crp_alpha, crp_topk,
                      reuse_policy, reuse_power, candidate_pool, cluster_size,
                      self.synth_init))
         else:
-            print('Initialised AM-Softmax (one-shot SLERP) m=%.3f s=%.3f slerp_t=%.2f'
-                  % (self.m, self.s, self.slerp_t))
+            print('Initialised AM-Softmax (one-shot %s) m=%.3f s=%.3f t=%.2f'
+                  % (self.interpolation.upper(), self.m, self.s, self.slerp_t))
         print('Embedding dim is {}, number of speakers is {}'.format(embedding_dim, num_classes))
 
     def get_extra_state(self):
@@ -91,6 +97,7 @@ class amsoftmax_gan(nn.Module):
             return {"persistence": False}
         return {
             "persistence": True,
+            "interpolation": self.interpolation,
             "synth_init": self.synth_init,
             "synth": self.synth.state_dict(),
         }
@@ -117,11 +124,15 @@ class amsoftmax_gan(nn.Module):
             for key, col in newly_reserved:
                 i, j = self.synth._members(key)
                 self.W_syn[:, int(col)].copy_(
-                    slerp(self.W[:, i], self.W[:, j], self.slerp_t)
+                    self._interpolate(self.W[:, i], self.W[:, j])
                 )
         return newly_reserved
 
     # ------------------------------------------------------------------ utils
+    def _interpolate(self, p0, p1):
+        interpolation = lerp if self.interpolation == "lerp" else slerp
+        return interpolation(p0, p1, self.slerp_t)
+
     def _am_loss(self, x_emb, W_cols, target, return_logits=False):
         """AM-Softmax CE + top-1 acc. x_emb:(N,D) W_cols:(D,K) target:(N,) into K."""
         x_norm = F.normalize(x_emb, dim=1)
@@ -172,7 +183,7 @@ class amsoftmax_gan(nn.Module):
         for bi in range(B):
             l1, l2 = labels[bi], dic_spk[labels[bi]]
             key = (min(l1, l2), max(l1, l2))
-            proto = slerp(self.W[:, l1], self.W[:, l2], self.slerp_t)
+            proto = self._interpolate(self.W[:, l1], self.W[:, l2])
             if key not in newlabel:
                 newlabel[key] = labelid
                 w_mix[:, labelid] = proto
@@ -180,7 +191,7 @@ class amsoftmax_gan(nn.Module):
             else:
                 w_mix[:, newlabel[key]] = proto
             y_mix[bi] = newlabel[key]
-            samples.append(slerp(x[bi], x[idx_of[l2][0]], self.slerp_t))
+            samples.append(self._interpolate(x[bi], x[idx_of[l2][0]]))
         synthetic = torch.stack(samples, 0)
         return synthetic, y_mix, w_mix[:, :labelid]
 
@@ -217,7 +228,7 @@ class amsoftmax_gan(nn.Module):
                 e_j, source = x[int(explicit_partner_idx)], "batch"
             if e_j is None:
                 continue
-            samples.append(slerp(x[bi], e_j, self.slerp_t))
+            samples.append(self._interpolate(x[bi], e_j))
             cols.append(int(col))
             used_selection.append(
                 (bi, key, int(col), j, event, explicit_partner_idx)
@@ -235,7 +246,7 @@ class amsoftmax_gan(nn.Module):
                     "or reduce crp_topk."
                 )
             partner = x[1] if B > 1 else x[0]
-            samples.append(slerp(x[0], partner, self.slerp_t))
+            samples.append(self._interpolate(x[0], partner))
             cols.append(int(col0))
             used_selection.append(
                 (0, key, int(col0), None, event, 1 if B > 1 else 0)

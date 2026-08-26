@@ -19,6 +19,7 @@ def build_criterion(config):
             candidate_pool=config.get('candidate_pool', 'topk'),
             cluster_size=config.get('cluster_size', 8),
             synth_init=config.get('synth_init', 'xavier'),
+            interpolation=config.get('interpolation', 'slerp'),
         )
     else:
         raise NotImplementedError

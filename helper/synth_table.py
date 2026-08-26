@@ -34,6 +34,11 @@ import torch.distributed as dist
 import torch.nn.functional as F
 
 
+def lerp(p0, p1, t=0.5):
+    """Linear interpolation used by the original CAARMA implementation."""
+    return (1.0 - t) * p0 + t * p1
+
+
 def slerp(p0, p1, t=0.5, eps=1e-7):
     """Spherical linear interpolation on the unit hypersphere.
 
