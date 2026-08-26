@@ -9,7 +9,7 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/paper_aligned_crp_projection_slerpinit/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/final_matched_oneshot_projection/checkpoints"
 hubert_cache_dir: "${CAARMA_HUBERT_CACHE}"
 hubert_model_name: "facebook/hubert-large-ls960-ft"
 
@@ -41,7 +41,7 @@ precision: "16-mixed"
 seed: 42
 
 # P3b: explicitly score embedding-prototype compatibility with Projection-D.
-persistence: true
+persistence: false
 slerp_t: 0.5
 synth_bank_size: 10
 synth_max_factor: 4
@@ -53,5 +53,6 @@ reuse_power: 1.0
 candidate_pool: "topk"
 cluster_size: 8
 synth_init: "slerp_parents"
+one_shot_pairing: "topk"
 discriminator_type: "projection"
-title: "paper_aligned_crp_projection_slerpinit"
+title: "final_matched_oneshot_projection"
