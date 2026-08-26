@@ -125,6 +125,10 @@ class Task(LightningModule):
             self.lambda_adv = max(self.lambda_adv * 0.9, 0.0001)
         return self.lambda_adv
 
+    def on_train_epoch_start(self):
+        if getattr(self.loss, "persistence", False):
+            self.loss.rebuild_persistent_pairing()
+
     # ─────────────────────── per-step helpers ──────────────────────────
     def _d_step(self, opt_d, waveform, label):
         """Discriminator update step.
@@ -137,7 +141,12 @@ class Task(LightningModule):
         with torch.no_grad():
             feature_d = self.features(waveform)
             embedding_d = self.model(feature_d)
-            _, _, synth_for_d = self.loss(embedding_d, label)
+            # D reads the current persistent table but must not mutate CRP
+            # occupancy. The source-faithful 5G:1D schedule uses a different
+            # batch for D and M, so cross-step selection caching is invalid.
+            _, _, synth_for_d = self.loss(
+                embedding_d, label, update_state=False
+            )
 
         opt_d.zero_grad()
         B = embedding_d.size(0)
@@ -170,16 +179,21 @@ class Task(LightningModule):
         feature = self.features(waveform)
         embedding = self.model(feature)
         opt_main.zero_grad()
-        amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
+        # Only M-step visits update the persistent CRP registry and memory bank.
+        amsoftmax_loss, acc, synthetic_embeddings = self.loss(
+            embedding, label, update_state=True
+        )
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
+        if getattr(self.loss, "persistence", False):
+            self.loss.synchronize_synth_state(embedding.device)
 
         # Single concatenated D forward (real + synthetic in one tensor).
-        B = embedding.size(0)
+        Ns = synthetic_embeddings.size(0)
         combined = torch.cat(
             [self.normalize(synthetic_embeddings), self.normalize(embedding)], dim=0
         )
         preds = self.discriminator(combined)
-        fake_preds, real_preds = preds[:B], preds[B:]
+        fake_preds, real_preds = preds[:Ns], preds[Ns:]
         # Source g_loss /2 (paper Eq.2 has no /2).
         g_loss = (self.BCE_loss(fake_preds, torch.ones_like(fake_preds))
                   + self.BCE_loss(real_preds, torch.zeros_like(real_preds))) / 2

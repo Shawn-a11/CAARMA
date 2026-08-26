@@ -1,0 +1,57 @@
+import re
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class Vox1V2CrpSourceArmTest(unittest.TestCase):
+    def test_source_schedule_updates_crp_only_in_main_step(self):
+        source = (ROOT / "train_source_faithful.py").read_text()
+        for required in (
+            "rebuild_persistent_pairing",
+            "embedding_d, label, update_state=False",
+            "embedding, label, update_state=True",
+            "synchronize_synth_state",
+            "Ns = synthetic_embeddings.size(0)",
+            "preds[:Ns], preds[Ns:]",
+        ):
+            self.assertIn(required, source)
+        self.assertNotIn("cache_selection=True", source)
+        self.assertNotIn("reuse_selection=True", source)
+
+    def test_config_changes_only_the_persistent_crp_method_surface(self):
+        base = (ROOT / "config_psc_vox1v2.yaml").read_text()
+        crp = (ROOT / "config_psc_vox1v2_crp.yaml").read_text()
+        fixed_keys = (
+            "model", "features", "dataset", "trial_path", "root",
+            "hubert_model_name", "init_lr", "epochs", "weight_decay",
+            "warmup_step", "batch_size", "num_workers", "second",
+            "num_spk", "embedding_dim", "am_margin", "am_scale",
+            "devices", "precision", "seed",
+        )
+        for key in fixed_keys:
+            pattern = re.compile(rf"^{re.escape(key)}:\s*(.+)$", re.MULTILINE)
+            self.assertEqual(pattern.search(base).group(1), pattern.search(crp).group(1))
+        for expected in (
+            'persistence: true',
+            'pair_strategy: "crp"',
+            'reuse_policy: "popularity"',
+            'candidate_pool: "topk"',
+            'synth_init: "xavier"',
+        ):
+            self.assertIn(expected, crp)
+
+    def test_launcher_is_isolated_and_excludes_v010(self):
+        launcher = (
+            ROOT / "scripts/psc/train_vox1v2_crp.slurm"
+        ).read_text()
+        self.assertIn("#SBATCH --exclude=v010", launcher)
+        self.assertIn("#SBATCH --gpus=v100-32:4", launcher)
+        self.assertIn("config_psc_vox1v2_crp.yaml", launcher)
+        self.assertIn("caarma_vox1v2_crp_persistent_hubert", launcher)
+
+
+if __name__ == "__main__":
+    unittest.main()
