@@ -52,10 +52,25 @@ class Vox1V2CrpSourceArmTest(unittest.TestCase):
         launcher = (
             ROOT / "scripts/psc/train_vox1v2_crp.slurm"
         ).read_text()
-        self.assertIn("#SBATCH --exclude=v010", launcher)
+        self.assertIn("#SBATCH --exclude=v010,v013", launcher)
         self.assertIn("#SBATCH --gpus=v100-32:4", launcher)
         self.assertIn("config_psc_vox1v2_crp.yaml", launcher)
-        self.assertIn("caarma_vox1v2_crp_persistent_hubert", launcher)
+        self.assertIn("caarma_vox1v2_crp_persistent_hubert_ddp_retry", launcher)
+        self.assertIn('--save-dir "$RUN_DIR/checkpoints"', launcher)
+
+    def test_8gpu_launcher_preserves_global_batch(self):
+        source = (ROOT / "train_source_faithful.py").read_text()
+        launcher = (
+            ROOT / "scripts/psc/train_vox1v2_crp_8gpu.slurm"
+        ).read_text()
+        self.assertIn("dist.get_world_size()", source)
+        self.assertIn("--batch-size", source)
+        self.assertIn("#SBATCH --exclude=v010,v013", launcher)
+        self.assertIn("#SBATCH --gpus=v100-32:8", launcher)
+        self.assertIn("#SBATCH --ntasks-per-node=8", launcher)
+        self.assertIn("--devices 8", launcher)
+        self.assertIn("--batch-size 25", launcher)
+        self.assertIn('--save-dir "$RUN_DIR/checkpoints"', launcher)
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ the deadlock root causes we already paid for)
     rank-desync issues with gradient scaler).
 """
 from argparse import ArgumentParser
+from datetime import timedelta
 import os
 
 import torch
@@ -361,12 +362,12 @@ class Task(LightningModule):
         return min_dcf, min_c_det_threshold
 
     def on_validation_epoch_end(self):
-        num_gpus = torch.cuda.device_count()
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
         # Gather eval_vectors from all DDP ranks.
-        all_eval_vectors = [None for _ in range(num_gpus)]
+        all_eval_vectors = [None for _ in range(world_size)]
         dist.all_gather_object(all_eval_vectors, self.eval_vectors)
 
-        all_index_mappings = [None for _ in range(num_gpus)]
+        all_index_mappings = [None for _ in range(world_size)]
         dist.all_gather_object(all_index_mappings, self.index_mapping)
 
         # Bug-fix: each rank's batch_idx is local; need offset by cumulative
@@ -401,7 +402,24 @@ def cli_main():
     parser = ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--devices", type=int, default=None)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Override per-rank batch size (use 25 for 8 GPUs to keep global batch 200)",
+    )
+    parser.add_argument(
+        "--save-dir",
+        default=None,
+        help="Override checkpoint directory so retries and GPU-count controls stay isolated",
+    )
     parser.add_argument("--checkpoint", default=None)
+    parser.add_argument(
+        "--ddp-timeout-seconds",
+        type=int,
+        default=1800,
+        help="Fail a stalled collective promptly instead of hanging indefinitely",
+    )
     parser.add_argument(
         "--smoke-steps",
         type=int,
@@ -411,6 +429,14 @@ def cli_main():
     args = parser.parse_args()
 
     config = load_experiment_config(args.config)
+    if args.batch_size is not None:
+        if args.batch_size <= 0:
+            parser.error("--batch-size must be positive")
+        config["batch_size"] = args.batch_size
+    if args.save_dir is not None:
+        config["save_dir"] = args.save_dir
+    if args.ddp_timeout_seconds <= 0:
+        parser.error("--ddp-timeout-seconds must be positive")
     seed_everything(int(config.get("seed", 42)), workers=True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Device:", device)
@@ -453,6 +479,7 @@ def cli_main():
             find_unused_parameters=True,
             gradient_as_bucket_view=True,
             static_graph=False,
+            timeout=timedelta(seconds=args.ddp_timeout_seconds),
         ),
         accelerator="gpu",
         devices=requested_devices,

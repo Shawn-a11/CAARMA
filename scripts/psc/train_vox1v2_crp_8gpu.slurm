@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=caarma-v12-crp
+#SBATCH --job-name=caarma-v12-crp-8g
 #SBATCH --partition=GPU-shared
 #SBATCH --exclude=v010,v013
-#SBATCH --gpus=v100-32:4
+#SBATCH --gpus=v100-32:8
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks-per-node=8
 #SBATCH --cpus-per-task=4
-#SBATCH --time=40:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=/ocean/projects/cis220031p/sge2/logs/%x-%j.out
 #SBATCH --error=/ocean/projects/cis220031p/sge2/logs/%x-%j.err
 
@@ -32,7 +32,7 @@ test -f config_psc_vox1v2_crp.yaml
 test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
-RUN_DIR="$CAARMA_RUN_ROOT/caarma_vox1v2_crp_persistent_hubert_ddp_retry"
+RUN_DIR="$CAARMA_RUN_ROOT/caarma_vox1v2_crp_persistent_hubert_8gpu"
 test ! -e "$RUN_DIR" || {
   echo "Refusing to reuse existing output directory: $RUN_DIR" >&2
   exit 1
@@ -49,7 +49,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export XDG_CACHE_HOME="$CAARMA_RUN_ROOT/cache"
 mkdir -p "$XDG_CACHE_HOME"
 
-python -c "import train_source_faithful; print('Vox1+2 persistent CRP import OK')"
+python -c "import train_source_faithful; print('Vox1+2 persistent CRP 8-GPU import OK')"
 
 python - <<'PY'
 import os
@@ -64,9 +64,7 @@ m4a_paths = manifest.loc[
 if m4a_paths.empty:
     raise RuntimeError("The Vox1+2 manifest contains no M4A files to validate")
 waveform, sample_rate = load_audio_file(m4a_paths.iloc[0])
-print(
-    "VoxCeleb2 M4A decode ready:", tuple(waveform.shape), sample_rate
-)
+print("VoxCeleb2 M4A decode ready:", tuple(waveform.shape), sample_rate)
 PY
 
 python - <<'PY'
@@ -83,9 +81,11 @@ PY
 echo "CAARMA job repo: $REPO_ROOT"
 echo "CAARMA method commit: ${CAARMA_METHOD_COMMIT:-archive-snapshot}"
 echo "CAARMA train manifest: $CAARMA_TRAIN_MANIFEST"
+echo "Global batch: 8 ranks x 25 samples = 200"
 
 srun python -u train_source_faithful.py \
   --config config_psc_vox1v2_crp.yaml \
-  --devices 4 \
+  --devices 8 \
+  --batch-size 25 \
   --save-dir "$RUN_DIR/checkpoints" \
   --ddp-timeout-seconds 600
