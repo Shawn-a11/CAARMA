@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=caarma-pa-crp-proj
+#SBATCH --job-name=caarma-final-xavier
 #SBATCH --partition=GPU-shared
 #SBATCH --exclude=v010
 #SBATCH --gpus=v100-32:4
@@ -25,7 +25,7 @@ test -f config_psc_vox1_paper_method.yaml
 test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
-mkdir -p "$CAARMA_RUN_ROOT/paper_aligned_crp_projection_slerpinit/checkpoints"
+mkdir -p "$CAARMA_RUN_ROOT/final_xavier_projection/checkpoints"
 
 export OMP_NUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false
