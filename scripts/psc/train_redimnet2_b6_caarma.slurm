@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=caarma-redim2-crp
+#SBATCH --job-name=caarma-rd2-mb25
 #SBATCH --partition=GPU-shared
 #SBATCH --exclude=v010
 #SBATCH --gpus=v100-32:4
@@ -29,7 +29,7 @@ test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
 test -f "$CAARMA_REDIMNET2_CHECKPOINT"
-mkdir -p "$CAARMA_RUN_ROOT/redimnet2_b6_vox2lm_crp_projection_slerpinit/checkpoints"
+mkdir -p "$CAARMA_RUN_ROOT/redimnet2_b6_vox2lm_crp_projection_slerpinit_mb25_acc2/checkpoints"
 
 export OMP_NUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false

@@ -84,6 +84,11 @@ class Task(LightningModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.max_epochs = max_epochs
+        self.manual_accumulate_grad_batches = int(
+            config.get("manual_accumulate_grad_batches", 1)
+        )
+        if self.manual_accumulate_grad_batches < 1:
+            raise ValueError("manual_accumulate_grad_batches must be >= 1")
         self.trials = np.loadtxt(trial_path, str)
         self.config = config
         self.automatic_optimization = False
@@ -179,7 +184,8 @@ class Task(LightningModule):
             self.loss.rebuild_persistent_pairing()
 
     # ─────────────────────── per-step helpers ──────────────────────────
-    def _d_step(self, opt_d, waveform, label):
+    def _d_step(self, opt_d, waveform, label, *, zero_grad=True,
+                step_now=True, loss_divisor=1):
         """Discriminator update step.
         Encoder runs inside no_grad so DDP never registers encoder params
         as 'used in this forward' for this backward pass — required to
@@ -200,7 +206,8 @@ class Task(LightningModule):
                 getattr(self.loss, "last_synth_cols", [])
             )
 
-        opt_d.zero_grad()
+        if zero_grad:
+            opt_d.zero_grad()
         B = embedding_d.size(0)
         combined = torch.cat(
             [self.normalize(embedding_d), self.normalize(synth_for_d)], dim=0
@@ -227,14 +234,16 @@ class Task(LightningModule):
         d_fake_loss = self.BCE_loss(fake_preds, torch.zeros_like(fake_preds))
         d_loss = d_real_loss + d_fake_loss
 
-        self.manual_backward(d_loss)
-        opt_d.step()
+        self.manual_backward(d_loss / float(loss_divisor))
+        if step_now:
+            opt_d.step()
         self.untoggle_optimizer(opt_d)
         self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
         return d_loss
 
     def _g_step(self, opt_main, waveform, label, lambda_adv_value,
-                adjust=False):
+                adjust=False, *, zero_grad=True, step_now=True,
+                loss_divisor=1):
         """Main encoder (M) update step.
         Encoder runs INSIDE toggle_optimizer(opt_main) so discriminator
         params are frozen via toggle and DDP only syncs encoder/loss params.
@@ -245,7 +254,8 @@ class Task(LightningModule):
         self.toggle_optimizer(opt_main)
         feature = self.features(waveform)
         embedding = self.model(feature)
-        opt_main.zero_grad()
+        if zero_grad:
+            opt_main.zero_grad()
         amsoftmax_loss, acc, synthetic_embeddings = self.loss(
             embedding,
             label,
@@ -293,12 +303,13 @@ class Task(LightningModule):
                       + (1.0 / self.config['num_spk']) * amsoftmax_syn_loss
                       + self.lambda_adv * g_loss)
 
-        self.manual_backward(total_loss)
-        opt_main.step()
+        self.manual_backward(total_loss / float(loss_divisor))
+        if step_now:
+            opt_main.step()
         self.untoggle_optimizer(opt_main)
 
         # Source's per-step warmup overwrite.
-        if self.trainer.global_step < self.config['warmup_step']:
+        if step_now and self.trainer.global_step < self.config['warmup_step']:
             lr_scale = min(1., (self.trainer.global_step + 1)
                            / float(self.config['warmup_step']))
             for pg in opt_main.param_groups:
@@ -316,13 +327,30 @@ class Task(LightningModule):
         waveform = batch['waveform']
         label = batch['mapped_id']
 
-        self._d_step(opt_d, waveform, label)
+        accumulation = self.manual_accumulate_grad_batches
+        total_batches = int(self.trainer.num_training_batches)
+        group_start = (batch_idx // accumulation) * accumulation
+        group_size = min(accumulation, total_batches - group_start)
+        zero_grad = batch_idx == group_start
+        step_now = ((batch_idx - group_start + 1) == group_size)
+
+        self._d_step(
+            opt_d,
+            waveform,
+            label,
+            zero_grad=zero_grad,
+            step_now=step_now,
+            loss_divisor=group_size,
+        )
         return self._g_step(
             opt_main,
             waveform,
             label,
             lambda_adv_value=self.lambda_adv,
             adjust=True,
+            zero_grad=zero_grad,
+            step_now=step_now,
+            loss_divisor=group_size,
         )
 
     def configure_optimizers(self):

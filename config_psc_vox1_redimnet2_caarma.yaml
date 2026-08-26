@@ -9,7 +9,7 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/redimnet2_b6_vox2lm_crp_projection_slerpinit/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/redimnet2_b6_vox2lm_crp_projection_slerpinit_mb25_acc2/checkpoints"
 redimnet2_checkpoint: "${CAARMA_REDIMNET2_CHECKPOINT}"
 redimnet2_checkpoint_sha256: "bc45f032099f3c9f0fb6ad756bca23daeeba456d00c515056e388824ef36f41b"
 
@@ -21,7 +21,10 @@ discriminator_lr: 0.0002
 epochs: 30
 weight_decay: 0.0000001
 warmup_step: 2000
-batch_size: 50
+# ReDimNet2-B6 exceeds a V100-32 at 50 samples per rank. Two 25-sample
+# micro-batches preserve the original effective global batch of 4*50=200.
+batch_size: 25
+manual_accumulate_grad_batches: 2
 num_workers: 4
 second: 3
 do_augmentation: false
