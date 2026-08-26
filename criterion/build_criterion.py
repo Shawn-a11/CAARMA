@@ -1,4 +1,5 @@
 from criterion.amsoftmax_mix_gan import amsoftmax_gan
+from criterion.amsoftmax import amsoftmax
 
 def build_criterion(config):
     if config['criterion'] == 'AMSoftmaxGAN':
@@ -7,6 +8,13 @@ def build_criterion(config):
             num_classes=config['num_spk'],
             m=config.get('am_margin', 0.2),
             s=config.get('am_scale', 30),
+        )
+    elif config['criterion'] == 'AMSoftmax':
+        criterion = amsoftmax(
+            embedding_dim=config['embedding_dim'],
+            num_classes=config['num_spk'],
+            margin=config.get('am_margin', 0.2),
+            scale=config.get('am_scale', 30),
         )
     else:
         raise NotImplementedError
