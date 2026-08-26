@@ -1,0 +1,38 @@
+model: "MFA-CONFORMER"
+features: "Fbank"
+augmentations:
+  add_noise: false
+  add_reverb: false
+  drop_freq: false
+  drop_chunk: false
+
+dataset: "${CAARMA_TRAIN_MANIFEST}"
+trial_path: "${CAARMA_TRIAL_PATH}"
+root: "${CAARMA_VOX1_EVAL_ROOT}"
+save_dir: "${CAARMA_RUN_ROOT}/paper_table2_id2_lsyn_only/checkpoints"
+
+USE_WANDB: false
+criterion: "AMSoftmaxGAN"
+init_lr: 0.001
+epochs: 30
+weight_decay: 0.0000001
+warmup_step: 2000
+lr_scheduler_step_size: 4
+lr_scheduler_gamma: 0.5
+batch_size: 50
+num_workers: 4
+second: 3
+do_augmentation: false
+num_spk: "auto"
+mixup: true
+adversarial_training: false
+embedding_dim: 192
+am_margin: 0.2
+am_scale: 30
+checkpoint_path: "None"
+save_top_k: 3
+devices: 4
+num_nodes: 1
+precision: "16-mixed"
+seed: 42
+title: "paper_table2_id2_lsyn_only_psc"
