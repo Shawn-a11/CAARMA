@@ -261,6 +261,32 @@ class Discriminator_spectral(nn.Module):
     def forward(self, x):
         x = self.activation(self.fc1(x))
         return self.fc2(x)
+
+
+class ProjectionDiscriminator_spectral(nn.Module):
+    """Projection MLP-D conditioned on the assigned class prototype."""
+
+    requires_condition = True
+
+    def __init__(self, embedding_dim, hidden_dim=128):
+        super().__init__()
+        self.embed = spectral_norm(nn.Linear(embedding_dim, hidden_dim))
+        self.cond = spectral_norm(
+            nn.Linear(embedding_dim, hidden_dim, bias=False)
+        )
+        self.activation = nn.LeakyReLU(0.2)
+        self.head = spectral_norm(nn.Linear(hidden_dim, 1))
+        self.scale = hidden_dim ** 0.5
+
+    def forward(self, x, condition):
+        if condition is None:
+            raise ValueError(
+                "ProjectionDiscriminator_spectral requires a condition tensor"
+            )
+        phi = self.activation(self.embed(x))
+        psi = self.cond(F.normalize(condition, dim=1))
+        compatibility = (phi * psi).sum(dim=1, keepdim=True) / self.scale
+        return self.head(phi) + compatibility
         #return torch.sigmoid(self.fc2(x))
 
 class Discriminator(nn.Module):

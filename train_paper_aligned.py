@@ -40,6 +40,7 @@ import os
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import torch.distributed as dist
 from pytorch_lightning.strategies import DDPStrategy
@@ -53,7 +54,11 @@ from feature.build_feature import build_feature
 from functions.loader import super_dataset
 from criterion.build_criterion import build_criterion
 from model.model_build import build_model
-from model.discriminator_mix import MixupDiscriminator
+from model.discriminator_mix import (
+    Discriminator_spectral,
+    MixupDiscriminator,
+    ProjectionDiscriminator_spectral,
+)
 from helper.config_utils import load_experiment_config
 
 from scipy.interpolate import interp1d
@@ -72,6 +77,9 @@ class Task(LightningModule):
         self.loss = loss
         self.loss_syn = loss
         self.learning_rate = learning_rate
+        self.encoder_learning_rate = float(
+            config.get("encoder_lr", learning_rate)
+        )
         self.weight_decay = weight_decay
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -80,16 +88,33 @@ class Task(LightningModule):
         self.config = config
         self.automatic_optimization = False
 
-        self.discriminator = MixupDiscriminator(
-            hubert_model_name=self.config.get(
-                "hubert_model_name", "facebook/hubert-large-ls960-ft"
-            ),
-            cache_dir=self.config["hubert_cache_dir"],
-            freeze_hubert=bool(self.config.get("freeze_hubert", False)),
-        ).train()
+        discriminator_type = str(
+            self.config.get("discriminator_type", "hubert")
+        )
+        if discriminator_type == "hubert":
+            self.discriminator = MixupDiscriminator(
+                hubert_model_name=self.config.get(
+                    "hubert_model_name", "facebook/hubert-large-ls960-ft"
+                ),
+                cache_dir=self.config["hubert_cache_dir"],
+                freeze_hubert=bool(self.config.get("freeze_hubert", False)),
+            ).train()
+        elif discriminator_type == "spectral":
+            self.discriminator = Discriminator_spectral(
+                self.config["embedding_dim"]
+            ).train()
+        elif discriminator_type == "projection":
+            self.discriminator = ProjectionDiscriminator_spectral(
+                self.config["embedding_dim"]
+            ).train()
+        else:
+            raise ValueError(
+                f"Unknown discriminator_type: {discriminator_type!r}"
+            )
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
 
-        if self.discriminator.freeze_hubert:
+        if (hasattr(self.discriminator, "hubert")
+                and self.discriminator.freeze_hubert):
             hubert_ignore = []
             for name, _ in self.discriminator.hubert.named_parameters():
                 hubert_ignore.append(f"discriminator.hubert.{name}")
@@ -105,6 +130,32 @@ class Task(LightningModule):
     def normalize(self, x):
         x_norm = torch.norm(x, p=2, dim=1, keepdim=True).clamp(min=1e-12)
         return torch.div(x, x_norm)
+
+    def _disc_requires_condition(self):
+        return getattr(self.discriminator, "requires_condition", False)
+
+    def _real_conditions(self, label, device):
+        label = label.to(self.loss.W.device, dtype=torch.long)
+        condition = self.loss.W[:, label].detach().t()
+        return F.normalize(condition, dim=1).to(device)
+
+    def _synth_conditions(self, cols, device):
+        if not getattr(self.loss, "persistence", False):
+            raise RuntimeError(
+                "Projection-D synthetic conditions require persistence=True"
+            )
+        if not cols:
+            raise RuntimeError("Projection-D received no synthetic columns")
+        index = torch.tensor(
+            cols, device=self.loss.W_syn.device, dtype=torch.long
+        )
+        condition = self.loss.W_syn[:, index].detach().t()
+        return F.normalize(condition, dim=1).to(device)
+
+    def _disc_forward(self, embeddings, conditions=None):
+        if self._disc_requires_condition():
+            return self.discriminator(embeddings, conditions)
+        return self.discriminator(embeddings)
 
     def forward(self, x):
         feature = self.features(x)
@@ -123,6 +174,10 @@ class Task(LightningModule):
             self.lambda_adv = max(self.lambda_adv * 0.9, self.lambda_adv_floor)
         return self.lambda_adv
 
+    def on_train_epoch_start(self):
+        if getattr(self.loss, "persistence", False):
+            self.loss.rebuild_persistent_pairing()
+
     # ─────────────────────── per-step helpers ──────────────────────────
     def _d_step(self, opt_d, waveform, label):
         """Discriminator update step.
@@ -135,14 +190,38 @@ class Task(LightningModule):
         with torch.no_grad():
             feature_d = self.features(waveform)
             embedding_d = self.model(feature_d)
-            _, _, synth_for_d = self.loss(embedding_d, label)
+            _, _, synth_for_d = self.loss(
+                embedding_d,
+                label,
+                update_state=False,
+                cache_selection=True,
+            )
+            synth_cols_d = list(
+                getattr(self.loss, "last_synth_cols", [])
+            )
 
         opt_d.zero_grad()
         B = embedding_d.size(0)
         combined = torch.cat(
             [self.normalize(embedding_d), self.normalize(synth_for_d)], dim=0
         )
-        preds = self.discriminator(combined)
+        if self._disc_requires_condition():
+            if len(synth_cols_d) != synth_for_d.size(0):
+                raise RuntimeError(
+                    "Projection-D condition mismatch in D step: "
+                    f"{len(synth_cols_d)} cols for "
+                    f"{synth_for_d.size(0)} synthetic rows"
+                )
+            conditions = torch.cat(
+                [
+                    self._real_conditions(label, combined.device),
+                    self._synth_conditions(synth_cols_d, combined.device),
+                ],
+                dim=0,
+            )
+        else:
+            conditions = None
+        preds = self._disc_forward(combined, conditions)
         real_preds, fake_preds = preds[:B], preds[B:]
         d_real_loss = self.BCE_loss(real_preds, torch.ones_like(real_preds))
         d_fake_loss = self.BCE_loss(fake_preds, torch.zeros_like(fake_preds))
@@ -167,16 +246,40 @@ class Task(LightningModule):
         feature = self.features(waveform)
         embedding = self.model(feature)
         opt_main.zero_grad()
-        amsoftmax_loss, acc, synthetic_embeddings = self.loss(embedding, label)
+        amsoftmax_loss, acc, synthetic_embeddings = self.loss(
+            embedding,
+            label,
+            update_state=True,
+            reuse_selection=True,
+        )
+        synth_cols_g = list(getattr(self.loss, "last_synth_cols", []))
         amsoftmax_syn_loss, _, _ = self.loss_syn(embedding, label, flagSyn=True)
+        if getattr(self.loss, "persistence", False):
+            self.loss.synchronize_synth_state(embedding.device)
 
         # Single concatenated D forward (real + synthetic in one tensor).
-        B = embedding.size(0)
+        Ns = synthetic_embeddings.size(0)
         combined = torch.cat(
             [self.normalize(synthetic_embeddings), self.normalize(embedding)], dim=0
         )
-        preds = self.discriminator(combined)
-        fake_preds, real_preds = preds[:B], preds[B:]
+        if self._disc_requires_condition():
+            if len(synth_cols_g) != synthetic_embeddings.size(0):
+                raise RuntimeError(
+                    "Projection-D condition mismatch in G step: "
+                    f"{len(synth_cols_g)} cols for "
+                    f"{synthetic_embeddings.size(0)} synthetic rows"
+                )
+            conditions = torch.cat(
+                [
+                    self._synth_conditions(synth_cols_g, combined.device),
+                    self._real_conditions(label, combined.device),
+                ],
+                dim=0,
+            )
+        else:
+            conditions = None
+        preds = self._disc_forward(combined, conditions)
+        fake_preds, real_preds = preds[:Ns], preds[Ns:]
         g_loss = (self.BCE_loss(fake_preds, torch.ones_like(fake_preds))
                   + self.BCE_loss(real_preds, torch.zeros_like(real_preds)))
 
@@ -199,7 +302,7 @@ class Task(LightningModule):
             lr_scale = min(1., (self.trainer.global_step + 1)
                            / float(self.config['warmup_step']))
             for pg in opt_main.param_groups:
-                pg['lr'] = lr_scale * self.learning_rate
+                pg['lr'] = lr_scale * pg['base_lr']
 
         self.log('am_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
         self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True, sync_dist=False)
@@ -224,7 +327,18 @@ class Task(LightningModule):
 
     def configure_optimizers(self):
         embedding_optimizer = AdamW(
-            list(self.model.parameters()) + list(self.loss.parameters()),
+            [
+                {
+                    "params": self.model.parameters(),
+                    "lr": self.encoder_learning_rate,
+                    "base_lr": self.encoder_learning_rate,
+                },
+                {
+                    "params": self.loss.parameters(),
+                    "lr": self.learning_rate,
+                    "base_lr": self.learning_rate,
+                },
+            ],
             lr=self.learning_rate,
             weight_decay=self.weight_decay,
             betas=(0.9, 0.999),

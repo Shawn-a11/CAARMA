@@ -2,6 +2,7 @@ from .ECAPA_TDNN import ecapa_tdnn, ecapa_tdnn_large
 from .MFA_Conformer import conformer_cat
 from .Raw_Net import RawNet3, Bottle2neck
 from .ska_tdnn import SKA_MainModel
+from .redimnet2_encoder import ReDimNet2B6Encoder
 
 def build_model(config, device):
     if config['model'] == 'ECAPA':
@@ -30,6 +31,13 @@ def build_model(config, device):
         
     elif config['model'] == 'SKA_TDNN':
         model = SKA_MainModel(eca_c=1024, eca_s=8, log_input=True, num_mels=80, num_out=192, pooling='CCSP')
+
+    elif config['model'] == 'REDIMNET2-B6':
+        model = ReDimNet2B6Encoder(
+            checkpoint_path=config['redimnet2_checkpoint'],
+            expected_sha256=config.get('redimnet2_checkpoint_sha256', ''),
+            embedding_dim=config['embedding_dim'],
+        ).to(device)
 
     else: 
         raise NotImplementedError
