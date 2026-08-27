@@ -493,7 +493,17 @@ def cli_main():
     parser = ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--devices", type=int, default=None)
-    parser.add_argument("--checkpoint", default=None)
+    checkpoint_group = parser.add_mutually_exclusive_group()
+    checkpoint_group.add_argument(
+        "--checkpoint",
+        default=None,
+        help="Load model weights only and start a new training run",
+    )
+    checkpoint_group.add_argument(
+        "--resume-checkpoint",
+        default=None,
+        help="Resume the full Lightning training state from a checkpoint",
+    )
     parser.add_argument(
         "--smoke-steps",
         type=int,
@@ -528,6 +538,16 @@ def cli_main():
         state_dict = torch.load(checkpoint_path, map_location="cpu")["state_dict"]
         final_project.load_state_dict(state_dict, strict=False)
         print("load weight from {}".format(checkpoint_path))
+
+    resume_checkpoint = args.resume_checkpoint
+    if resume_checkpoint is not None:
+        if not os.path.isfile(resume_checkpoint):
+            raise FileNotFoundError(
+                "Resume checkpoint does not exist: {}".format(
+                    resume_checkpoint
+                )
+            )
+        print("resume full training state from {}".format(resume_checkpoint))
 
     assert config['save_dir'] is not None
     checkpoint_callback = ModelCheckpoint(
@@ -564,7 +584,11 @@ def cli_main():
         max_steps=args.smoke_steps if smoke_mode else -1,
         limit_val_batches=0 if smoke_mode else 1.0,
     )
-    trainer.fit(final_project, datamodule=dataloader)
+    trainer.fit(
+        final_project,
+        datamodule=dataloader,
+        ckpt_path=resume_checkpoint,
+    )
 
 
 if __name__ == "__main__":

@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=caarma-rd2-mb25
+#SBATCH --job-name=rd2-resume-e5
 #SBATCH --partition=GPU-shared
 #SBATCH --exclude=v010
 #SBATCH --gpus=v100-32:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=4
-#SBATCH --time=08:00:00
+#SBATCH --time=40:00:00
 #SBATCH --output=/ocean/projects/cis220031p/sge2/logs/%x-%j.out
 #SBATCH --error=/ocean/projects/cis220031p/sge2/logs/%x-%j.err
 
@@ -21,7 +21,9 @@ conda activate "$CAARMA_CONDA_ENV"
 cd "$REPO_ROOT"
 
 CAARMA_REDIMNET2_CHECKPOINT="${CAARMA_REDIMNET2_CHECKPOINT:-/ocean/projects/cis220031p/sge2/caarma_runs/model_cache/redimnet2/b6-vox2-lm.pt}"
+CAARMA_RESUME_CHECKPOINT="${CAARMA_RESUME_CHECKPOINT:-/ocean/projects/cis220031p/sge2/caarma_runs/redimnet2_b6_vox2lm_crp_projection_slerpinit_mb25_acc2/checkpoints/last.ckpt}"
 export CAARMA_REDIMNET2_CHECKPOINT
+export CAARMA_RESUME_CHECKPOINT
 
 test -f train_paper_aligned.py
 test -f config_psc_vox1_redimnet2_caarma.yaml
@@ -29,7 +31,8 @@ test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
 test -f "$CAARMA_REDIMNET2_CHECKPOINT"
-mkdir -p "$CAARMA_RUN_ROOT/redimnet2_b6_vox2lm_crp_projection_slerpinit_mb25_acc2/checkpoints"
+test -f "$CAARMA_RESUME_CHECKPOINT"
+mkdir -p "$CAARMA_RUN_ROOT/redimnet2_b6_caarma_resume_epoch5_to30/checkpoints"
 
 export OMP_NUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false
@@ -41,6 +44,8 @@ mkdir -p "$XDG_CACHE_HOME"
 echo "CAARMA job repo: $REPO_ROOT"
 echo "CAARMA method commit: ${CAARMA_METHOD_COMMIT:-archive-snapshot}"
 echo "ReDimNet2 checkpoint: $CAARMA_REDIMNET2_CHECKPOINT"
+echo "Resume checkpoint: $CAARMA_RESUME_CHECKPOINT"
 srun --kill-on-bad-exit=1 python -u train_paper_aligned.py \
   --config config_psc_vox1_redimnet2_caarma.yaml \
-  --devices 4
+  --devices 4 \
+  --resume-checkpoint "$CAARMA_RESUME_CHECKPOINT"
