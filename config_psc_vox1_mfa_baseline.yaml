@@ -9,7 +9,7 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/paper_table2_id1_mfa_baseline/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/mfa_baseline_coarse_margin025/checkpoints"
 
 USE_WANDB: false
 criterion: "AMSoftmax"
@@ -26,7 +26,7 @@ do_augmentation: false
 num_spk: "auto"
 mixup: false
 embedding_dim: 192
-am_margin: 0.2
+am_margin: 0.25
 am_scale: 30
 checkpoint_path: "None"
 save_top_k: 3
@@ -34,4 +34,8 @@ devices: 4
 num_nodes: 1
 precision: "16-mixed"
 seed: 42
-title: "paper_table2_id1_mfa_baseline_psc"
+title: "mfa_baseline_coarse_margin025_psc"
+tuning_axis: "am_margin"
+tuning_value: 0.25
+tuning_round: "coarse_extreme"
+fixed_control_job: 44493754
