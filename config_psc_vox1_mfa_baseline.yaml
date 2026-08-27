@@ -9,11 +9,11 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/paper_table2_id1_mfa_baseline_clean/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/mfa_job44493754_lr5e4/checkpoints"
 
 USE_WANDB: false
 criterion: "AMSoftmax"
-init_lr: 0.001
+init_lr: 0.0005
 epochs: 30
 weight_decay: 0.0000001
 warmup_step: 2000
@@ -33,4 +33,7 @@ num_nodes: 1
 precision: "16-mixed"
 sync_batchnorm: false
 seed: 42
-title: "paper_table2_id1_mfa_baseline_clean_psc"
+fixed_control_job: 44493754
+tuning_axis: "init_lr"
+tuning_value: 0.0005
+title: "mfa_job44493754_locked_lr5e4"
