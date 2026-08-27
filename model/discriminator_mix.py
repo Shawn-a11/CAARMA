@@ -114,6 +114,35 @@ class EnhancedResidualBlock(nn.Module):
         return F.gelu(out + identity)
 
 
+class MLPDiscriminator(nn.Module):
+    """Embedding-level discriminator used for the HuBERT replacement control."""
+
+    def __init__(self, emb_dim=192, hidden_dim=256):
+        super().__init__()
+        mid_dim = hidden_dim // 2
+        self.discriminator = nn.Sequential(
+            nn.Linear(emb_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim, mid_dim),
+            nn.LayerNorm(mid_dim),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Dropout(0.1),
+            nn.Linear(mid_dim, 1),
+        )
+
+        trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print(
+            "[MLPDiscriminator] architecture: "
+            f"{emb_dim} -> {hidden_dim} -> {mid_dim} -> 1 "
+            f"({trainable:,} trainable params)"
+        )
+
+    def forward(self, embeddings):
+        return self.discriminator(embeddings)
+
+
 class MixupDiscriminator(nn.Module):
     def __init__(self, hubert_model_name="facebook/hubert-large-ls960-ft", cache_dir="", proj_dim=256, emb_dim=192, freeze_hubert=True):
         super(MixupDiscriminator, self).__init__()

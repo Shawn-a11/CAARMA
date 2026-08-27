@@ -9,7 +9,7 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/paper_aligned_lambda001/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/mlpd_fixed_lambda001_vs_hubert/checkpoints"
 hubert_cache_dir: "${CAARMA_HUBERT_CACHE}"
 hubert_model_name: "facebook/hubert-large-ls960-ft"
 
@@ -27,6 +27,8 @@ do_augmentation: false
 num_spk: "auto"
 mixup: true
 embedding_dim: 192
+discriminator_type: "mlp"
+mlp_hidden_dim: 256
 am_margin: 0.2
 am_scale: 30
 freeze_hubert: false
@@ -45,4 +47,4 @@ devices: 4
 num_nodes: 1
 precision: "16-mixed"
 seed: 42
-title: "paper_aligned_lambda001_seed42"
+title: "mlpd_fixed_lambda001_lr1e3_dlr2e4_vs_hubert_seed42"

@@ -53,7 +53,7 @@ from feature.build_feature import build_feature
 from functions.loader import super_dataset
 from criterion.build_criterion import build_criterion
 from model.model_build import build_model
-from model.discriminator_mix import MixupDiscriminator
+from model.discriminator_mix import MLPDiscriminator, MixupDiscriminator
 from helper.config_utils import load_experiment_config
 from helper.gan_controls import generator_lambda_plan, scheduled_updates
 
@@ -81,16 +81,34 @@ class Task(LightningModule):
         self.config = config
         self.automatic_optimization = False
 
-        self.discriminator = MixupDiscriminator(
-            hubert_model_name=self.config.get(
-                "hubert_model_name", "facebook/hubert-large-ls960-ft"
-            ),
-            cache_dir=self.config["hubert_cache_dir"],
-            freeze_hubert=bool(self.config.get("freeze_hubert", False)),
-        ).train()
+        discriminator_type = str(
+            self.config.get("discriminator_type", "hubert")
+        ).lower()
+        if discriminator_type == "mlp":
+            self.discriminator = MLPDiscriminator(
+                emb_dim=int(self.config["embedding_dim"]),
+                hidden_dim=int(self.config.get("mlp_hidden_dim", 256)),
+            ).train()
+        elif discriminator_type == "hubert":
+            self.discriminator = MixupDiscriminator(
+                hubert_model_name=self.config.get(
+                    "hubert_model_name", "facebook/hubert-large-ls960-ft"
+                ),
+                cache_dir=self.config["hubert_cache_dir"],
+                freeze_hubert=bool(self.config.get("freeze_hubert", False)),
+            ).train()
+        else:
+            raise ValueError(
+                f"Unsupported discriminator_type={discriminator_type!r}"
+            )
+        self.discriminator_type = discriminator_type
+        print(f"Paper-aligned discriminator: {self.discriminator_type}")
         self.BCE_loss = nn.BCEWithLogitsLoss().to(self.device)
 
-        if self.discriminator.freeze_hubert:
+        if (
+            hasattr(self.discriminator, "hubert")
+            and bool(getattr(self.discriminator, "freeze_hubert", False))
+        ):
             hubert_ignore = []
             for name, _ in self.discriminator.hubert.named_parameters():
                 hubert_ignore.append(f"discriminator.hubert.{name}")

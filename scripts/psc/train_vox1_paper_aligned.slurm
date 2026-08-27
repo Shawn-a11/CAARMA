@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=paper-l001
+#SBATCH --job-name=mlpd-l001-ctrl
 #SBATCH --partition=GPU-shared
 #SBATCH --gpus=v100-32:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=4
-#SBATCH --time=12:00:00
+#SBATCH --time=05:00:00
 #SBATCH --exclude=v010
 #SBATCH --output=/ocean/projects/cis220031p/sge2/logs/%x-%j.out
 #SBATCH --error=/ocean/projects/cis220031p/sge2/logs/%x-%j.err
@@ -25,25 +25,12 @@ test -f config_psc_vox1_paper_aligned.yaml
 test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
-mkdir -p "$CAARMA_RUN_ROOT/paper_aligned_lambda001/checkpoints"
+mkdir -p "$CAARMA_RUN_ROOT/mlpd_fixed_lambda001_vs_hubert/checkpoints"
 
 export OMP_NUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false
 export NCCL_BLOCKING_WAIT=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export XDG_CACHE_HOME="$CAARMA_RUN_ROOT/cache"
-mkdir -p "$XDG_CACHE_HOME"
-
-python - <<'PY'
-import os
-from transformers import HubertModel
-model = HubertModel.from_pretrained(
-    "facebook/hubert-large-ls960-ft",
-    cache_dir=os.environ["CAARMA_HUBERT_CACHE"],
-)
-print("HuBERT cache ready:", model.config.hidden_size)
-PY
-
 echo "CAARMA job repo: $REPO_ROOT"
 echo "CAARMA method commit: ${CAARMA_METHOD_COMMIT:-archive-snapshot}"
 srun python -u train_paper_aligned.py \
