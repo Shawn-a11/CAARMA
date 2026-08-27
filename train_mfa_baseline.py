@@ -18,7 +18,7 @@ from scipy.interpolate import interp1d
 from scipy.optimize import brentq
 from sklearn.metrics import roc_curve
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import LambdaLR
 
 from criterion.build_criterion import build_criterion
 from feature.build_feature import build_feature
@@ -47,31 +47,29 @@ class Task(LightningModule):
         self.learning_rate = float(learning_rate)
         self.weight_decay = float(weight_decay)
         self.trials = np.loadtxt(trial_path, str)
-        self.automatic_optimization = False
 
     def forward(self, waveform):
         return self.model(self.features(waveform))
 
     def training_step(self, batch, batch_idx):
-        optimizer = self.optimizers()
         embedding = self(batch['waveform'])
         am_loss, acc, _ = self.loss(embedding, batch['mapped_id'])
 
-        optimizer.zero_grad()
-        self.manual_backward(am_loss)
-        optimizer.step()
-
-        if self.trainer.global_step < int(self.config['warmup_step']):
-            lr_scale = min(
-                1.0,
-                float(self.trainer.global_step + 1)
-                / float(self.config['warmup_step']),
-            )
-            for group in optimizer.param_groups:
-                group['lr'] = lr_scale * self.learning_rate
-
-        self.log('am_loss', am_loss, prog_bar=True, sync_dist=False)
-        self.log('acc', acc, prog_bar=True, sync_dist=False)
+        self.log(
+            'am_loss', am_loss, prog_bar=True, on_step=True, on_epoch=True,
+            sync_dist=True,
+        )
+        self.log(
+            'acc', acc, prog_bar=True, on_step=True, on_epoch=True,
+            sync_dist=True,
+        )
+        self.log(
+            'learning_rate',
+            self.trainer.optimizers[0].param_groups[0]['lr'],
+            on_step=True,
+            on_epoch=False,
+            sync_dist=False,
+        )
         return am_loss
 
     def configure_optimizers(self):
@@ -81,15 +79,21 @@ class Task(LightningModule):
             weight_decay=self.weight_decay,
             betas=(0.9, 0.999),
         )
-        scheduler = StepLR(
+        warmup_steps = max(1, int(self.config.get('warmup_step', 2000)))
+        scheduler = LambdaLR(
             optimizer,
-            step_size=int(self.config.get('lr_scheduler_step_size', 4)),
-            gamma=float(self.config.get('lr_scheduler_gamma', 0.5)),
+            lr_lambda=lambda step: min(
+                1.0, float(step + 1) / float(warmup_steps)
+            ),
         )
-        return [optimizer], [scheduler]
-
-    def on_train_epoch_end(self):
-        self.lr_schedulers().step()
+        return {
+            'optimizer': optimizer,
+            'lr_scheduler': {
+                'scheduler': scheduler,
+                'interval': 'step',
+                'frequency': 1,
+            },
+        }
 
     def on_test_epoch_start(self):
         return self.on_validation_epoch_start()
@@ -238,7 +242,7 @@ def cli_main():
         max_epochs=int(config['epochs']),
         logger=False,
         num_sanity_val_steps=0,
-        sync_batchnorm=True,
+        sync_batchnorm=bool(config.get('sync_batchnorm', False)),
         precision=str(config.get('precision', '16-mixed')),
         callbacks=[] if smoke_mode else [checkpoint_callback],
         enable_checkpointing=not smoke_mode,

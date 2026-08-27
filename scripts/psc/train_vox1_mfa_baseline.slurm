@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=mfa-base333
+#SBATCH --job-name=mfa-base-clean
 #SBATCH --partition=GPU-shared
 #SBATCH --gpus=v100-32:4
-#SBATCH --exclude=v010
+#SBATCH --exclude=v008,v010
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=4
-#SBATCH --time=08:00:00
+#SBATCH --time=04:00:00
 #SBATCH --output=/ocean/projects/cis220031p/sge2/logs/%x-%j.out
 #SBATCH --error=/ocean/projects/cis220031p/sge2/logs/%x-%j.err
 
@@ -25,7 +25,7 @@ test -f config_psc_vox1_mfa_baseline.yaml
 test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
-mkdir -p "$CAARMA_RUN_ROOT/paper_table2_id1_mfa_baseline/checkpoints"
+mkdir -p "$CAARMA_RUN_ROOT/paper_table2_id1_mfa_baseline_clean/checkpoints"
 
 export OMP_NUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false
@@ -34,7 +34,9 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 echo "CAARMA job repo: $REPO_ROOT"
 echo "CAARMA method commit: ${CAARMA_METHOD_COMMIT:-archive-snapshot}"
-echo "Paper control: Table 2 ID1, MFA-Conformer + real AM-Softmax only"
+echo "Paper control: Table 2 ID1, clean MFA-Conformer + real AM-Softmax only"
+echo "Batch semantics: 50 samples per GPU, 4 GPUs, global batch 200"
+echo "Schedule: 2000-step linear warmup, then constant learning rate"
 srun python -u train_mfa_baseline.py \
   --config config_psc_vox1_mfa_baseline.yaml \
   --devices 4

@@ -23,6 +23,24 @@ class MfaBaselineArmTest(unittest.TestCase):
         self.assertEqual(config['am_margin'], 0.2)
         self.assertEqual(config['am_scale'], 30)
         self.assertEqual(config['batch_size'], 50)
+        self.assertEqual(config['warmup_step'], 2000)
+        self.assertFalse(config['sync_batchnorm'])
+        self.assertNotIn('lr_scheduler_step_size', config)
+        self.assertNotIn('lr_scheduler_gamma', config)
+
+    def test_optimizer_matches_job_44493754_control(self):
+        source = (ROOT / 'train_mfa_baseline.py').read_text()
+        self.assertIn('from torch.optim.lr_scheduler import LambdaLR', source)
+        self.assertIn("'interval': 'step'", source)
+        self.assertIn("'frequency': 1", source)
+        self.assertNotIn('StepLR', source)
+        self.assertNotIn('automatic_optimization = False', source)
+        self.assertNotIn('manual_backward', source)
+        self.assertNotIn('def on_train_epoch_end', source)
+        self.assertIn(
+            "sync_batchnorm=bool(config.get('sync_batchnorm', False))",
+            source,
+        )
 
     def test_entrypoint_has_no_synthetic_or_adversarial_training(self):
         source = (ROOT / 'train_mfa_baseline.py').read_text()
@@ -55,8 +73,8 @@ class MfaBaselineArmTest(unittest.TestCase):
             ROOT / 'scripts/psc/train_vox1_mfa_baseline.slurm'
         ).read_text()
         self.assertIn('#SBATCH --gpus=v100-32:4', script)
-        self.assertIn('#SBATCH --exclude=v010', script)
-        self.assertIn('#SBATCH --time=08:00:00', script)
+        self.assertIn('#SBATCH --exclude=v008,v010', script)
+        self.assertIn('#SBATCH --time=04:00:00', script)
         self.assertNotIn('HubertModel', script)
         self.assertIn('train_mfa_baseline.py', script)
 
