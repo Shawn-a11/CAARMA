@@ -16,11 +16,20 @@ class MfaBaselineArmTest(unittest.TestCase):
         config = yaml.safe_load(
             (ROOT / 'config_psc_vox1_mfa_baseline.yaml').read_text()
         )
+        tuning_axis = config.get('tuning_axis', 'control')
+        tuning_value = config.get('tuning_value')
         self.assertEqual(config['model'], 'MFA-CONFORMER')
         self.assertEqual(config['criterion'], 'AMSoftmax')
         self.assertFalse(config['mixup'])
         self.assertFalse(config['do_augmentation'])
-        self.assertEqual(config['am_margin'], 0.2)
+        if tuning_axis == 'am_margin':
+            self.assertEqual(config['am_margin'], tuning_value)
+        else:
+            self.assertEqual(config['am_margin'], 0.2)
+        if tuning_axis == 'init_lr':
+            self.assertEqual(config['init_lr'], tuning_value)
+        else:
+            self.assertEqual(config['init_lr'], 0.001)
         self.assertEqual(config['am_scale'], 30)
         self.assertEqual(config['batch_size'], 50)
         self.assertEqual(config['warmup_step'], 2000)

@@ -15,3 +15,7 @@ All corrected tuning branches must preserve the locked Job 44493754 contract:
 The mixed manual-optimization recipe is prohibited for this control. A
 scheduler experiment must be isolated and explicitly named as such.
 
+Before submission, every corrected arm must run
+`tools/verify_mfa_control_isolation.py`. The check requires the byte-identical
+Job 44493754 training entrypoint and rejects scheduler, SyncBN, batch, seed, or
+unreported objective changes.
