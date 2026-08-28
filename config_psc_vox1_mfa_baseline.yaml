@@ -9,7 +9,7 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/mfa_job44607056_lr15e4/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/mfa_job44607056_lr15e4_ncclfix1/checkpoints"
 
 USE_WANDB: false
 criterion: "AMSoftmax"
@@ -37,4 +37,4 @@ fixed_control_job: 44493754
 parent_result_job: 44607056
 tuning_axis: "init_lr"
 tuning_value: 0.0015
-title: "mfa_job44607056_lr15e4"
+title: "mfa_job44607056_lr15e4_ncclfix1"
