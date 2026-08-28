@@ -19,7 +19,6 @@ from scipy.interpolate import interp1d
 from scipy.optimize import brentq
 from sklearn.metrics import roc_curve
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import StepLR
 
 from criterion.build_criterion import build_criterion
 from feature.build_feature import build_feature
@@ -27,6 +26,30 @@ from functions.loader import super_dataset
 from helper.config_utils import load_experiment_config
 from model.discriminator_mix import Discriminator_spectral
 from model.model_build import build_model
+
+
+def optimizer_learning_rate(
+    base_lr,
+    update_step,
+    warmup_steps,
+    current_epoch,
+    decay_after_epoch,
+    decay_gamma,
+):
+    """Return the pre-update LR with optional warmup and one epoch decay."""
+    warmup = 1.0
+    if warmup_steps:
+        warmup = min(
+            1.0,
+            float(update_step + 1) / float(max(1, warmup_steps)),
+        )
+    decay = (
+        float(decay_gamma)
+        if decay_after_epoch is not None
+        and int(current_epoch) >= int(decay_after_epoch)
+        else 1.0
+    )
+    return float(base_lr) * warmup * decay
 
 
 class Task(LightningModule):
@@ -57,6 +80,9 @@ class Task(LightningModule):
         self.lambda_adv = float(config.get('lambda_adv_init', 0.25))
         self.lambda_adv_floor = float(config.get('lambda_adv_floor', 0.0001))
         self.lambda_adv_cap = float(config.get('lambda_adv_cap', 0.01))
+        self.register_buffer(
+            'main_update_count', torch.zeros((), dtype=torch.long)
+        )
 
     def forward(self, waveform):
         return self.model(self.features(waveform))
@@ -96,6 +122,16 @@ class Task(LightningModule):
             )
         )
         self.manual_backward(discriminator_loss)
+        discriminator_lr = optimizer_learning_rate(
+            base_lr=float(self.config.get('discriminator_lr', 0.0002)),
+            update_step=0,
+            warmup_steps=0,
+            current_epoch=self.current_epoch,
+            decay_after_epoch=self.config.get('lr_decay_after_epoch'),
+            decay_gamma=float(self.config.get('lr_decay_gamma', 1.0)),
+        )
+        for group in optimizer.param_groups:
+            group['lr'] = discriminator_lr
         optimizer.step()
         self.untoggle_optimizer(optimizer)
         return discriminator_loss
@@ -121,17 +157,19 @@ class Task(LightningModule):
         self.adjust_weight(am_loss, generator_loss)
         total_loss = am_loss + self.lambda_adv * generator_loss
         self.manual_backward(total_loss)
+        model_lr = optimizer_learning_rate(
+            base_lr=self.learning_rate,
+            update_step=int(self.main_update_count.item()),
+            warmup_steps=int(self.config.get('warmup_step', 2000)),
+            current_epoch=self.current_epoch,
+            decay_after_epoch=self.config.get('lr_decay_after_epoch'),
+            decay_gamma=float(self.config.get('lr_decay_gamma', 1.0)),
+        )
+        for group in optimizer.param_groups:
+            group['lr'] = model_lr
         optimizer.step()
+        self.main_update_count.add_(1)
         self.untoggle_optimizer(optimizer)
-
-        if self.trainer.global_step < int(self.config['warmup_step']):
-            lr_scale = min(
-                1.0,
-                float(self.trainer.global_step + 1)
-                / float(self.config['warmup_step']),
-            )
-            for group in optimizer.param_groups:
-                group['lr'] = lr_scale * self.learning_rate
 
         return total_loss, am_loss, generator_loss, acc
 
@@ -151,6 +189,15 @@ class Task(LightningModule):
         self.log('d_loss', discriminator_loss, prog_bar=True, sync_dist=False)
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         self.log('lambda_adv', self.lambda_adv, sync_dist=False)
+        self.log(
+            'model_learning_rate', model_optimizer.param_groups[0]['lr'],
+            sync_dist=False,
+        )
+        self.log(
+            'discriminator_learning_rate',
+            discriminator_optimizer.param_groups[0]['lr'],
+            sync_dist=False,
+        )
         self.log('acc', acc, prog_bar=True, sync_dist=False)
         return total_loss
 
@@ -167,25 +214,7 @@ class Task(LightningModule):
             weight_decay=self.weight_decay,
             betas=(0.5, 0.999),
         )
-        model_scheduler = StepLR(
-            model_optimizer,
-            step_size=int(self.config.get('lr_scheduler_step_size', 4)),
-            gamma=float(self.config.get('lr_scheduler_gamma', 0.5)),
-        )
-        discriminator_scheduler = StepLR(
-            discriminator_optimizer,
-            step_size=int(self.config.get('lr_scheduler_step_size', 4)),
-            gamma=float(self.config.get('lr_scheduler_gamma', 0.5)),
-        )
-        return (
-            [model_optimizer, discriminator_optimizer],
-            [model_scheduler, discriminator_scheduler],
-        )
-
-    def on_train_epoch_end(self):
-        model_scheduler, discriminator_scheduler = self.lr_schedulers()
-        model_scheduler.step()
-        discriminator_scheduler.step()
+        return [model_optimizer, discriminator_optimizer]
 
     def on_test_epoch_start(self):
         return self.on_validation_epoch_start()
@@ -338,7 +367,7 @@ def cli_main():
         max_epochs=int(config['epochs']),
         logger=False,
         num_sanity_val_steps=0,
-        sync_batchnorm=True,
+        sync_batchnorm=bool(config.get('sync_batchnorm', False)),
         precision=str(config.get('precision', '16-mixed')),
         callbacks=[] if smoke_mode else [checkpoint_callback],
         enable_checkpointing=not smoke_mode,

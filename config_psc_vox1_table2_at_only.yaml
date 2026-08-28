@@ -9,17 +9,17 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/paper_table2_id3_at_only/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/table2_id3_at_lr2e3_decay_e16/checkpoints"
 
 USE_WANDB: false
 criterion: "AMSoftmaxGAN"
-init_lr: 0.001
+init_lr: 0.002
 discriminator_lr: 0.0002
 epochs: 30
 weight_decay: 0.0000001
 warmup_step: 2000
-lr_scheduler_step_size: 4
-lr_scheduler_gamma: 0.5
+lr_decay_after_epoch: 16
+lr_decay_gamma: 0.5
 batch_size: 50
 num_workers: 4
 second: 3
@@ -40,5 +40,8 @@ save_top_k: 3
 devices: 4
 num_nodes: 1
 precision: "16-mixed"
+sync_batchnorm: false
 seed: 42
-title: "paper_table2_id3_at_only_psc"
+control_result_job: 44671054
+tuning_protocol: "lr2e3_warmup2000_single_decay_e16"
+title: "table2_id3_at_lr2e3_decay_e16_psc"
