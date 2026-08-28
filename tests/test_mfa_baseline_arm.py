@@ -88,8 +88,15 @@ class MfaBaselineArmTest(unittest.TestCase):
             ROOT / 'scripts/psc/train_vox1_mfa_baseline.slurm'
         ).read_text()
         self.assertIn('#SBATCH --gpus=v100-32:4', script)
-        self.assertIn('#SBATCH --exclude=v008,v010', script)
+        self.assertIn('#SBATCH --exclude=v003,v007,v008,v010', script)
         self.assertIn('#SBATCH --time=04:00:00', script)
+        self.assertIn('NCCL_P2P_DISABLE=1', script)
+        self.assertIn('NCCL_IB_DISABLE=1', script)
+        self.assertIn('TORCH_NCCL_ASYNC_ERROR_HANDLING=1', script)
+        self.assertIn('TORCH_NCCL_BLOCKING_WAIT=1', script)
+        self.assertIn('tools/verify_nccl_allreduce.py', script)
+        self.assertIn('--numel 19991936', script)
+        self.assertIn('--timeout-seconds 180', script)
         self.assertNotIn('HubertModel', script)
         self.assertIn('train_mfa_baseline.py', script)
 
