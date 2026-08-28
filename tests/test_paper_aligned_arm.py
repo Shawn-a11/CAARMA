@@ -7,13 +7,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PaperAlignedArmTest(unittest.TestCase):
-    def test_config_matches_explicit_paper_values(self):
+    def test_config_matches_full_method_and_locked_optimizer_protocol(self):
         config = yaml.safe_load((ROOT / "config_psc_vox1_paper_aligned.yaml").read_text())
-        self.assertEqual(config["init_lr"], 0.001)
+        self.assertEqual(config["init_lr"], 0.002)
         self.assertEqual(config["discriminator_lr"], 0.0002)
+        self.assertEqual(config["warmup_step"], 2000)
+        self.assertEqual(config["lr_decay_after_epoch"], 16)
+        self.assertEqual(config["lr_decay_gamma"], 0.5)
         self.assertEqual(config["batch_size"], 50)
         self.assertEqual(config["epochs"], 30)
         self.assertFalse(config["freeze_hubert"])
+        self.assertFalse(config["sync_batchnorm"])
 
     def test_every_batch_updates_both_optimizers(self):
         tree = ast.parse((ROOT / "train_paper_aligned.py").read_text())

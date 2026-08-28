@@ -1,39 +1,16 @@
-"""Paper-aligned CAARMA training arm for controlled numerical reproduction.
-(massabaali7/CAARMA, commit 150001e) training behaviour, with the DDP-specific
-mitigations required to run on our hardware without deadlocking.
+"""Optimizer-matched CAARMA Table 2 ID6 numerical reproduction.
 
-Why this file exists
-====================
-Source code uses DDPStrategy + devices=-1 (multi-GPU); previous Algorithm-2-
-faithful DDP run plateaued at 3.48 % vs paper 3.09 %. To isolate whether the
-gap is from the practical training tricks the source repo carries beyond the
-paper's Algorithm 2 pseudocode, this branch restores every source behaviour
-we can verifiably enforce, while keeping the DDP fixes already proven needed.
+The method remains the audited paper-aligned full recipe: one discriminator
+and one generator update per batch, L_syn, dynamic adversarial weighting, and
+the HuBERT Mixup Discriminator. The only deliberate protocol change from the
+previous 3.39% full control is the optimizer schedule already validated by the
+3.27% MFA baseline: 2,000 main updates of warmup at lr=2e-3 followed by one
+0.5x decay at epoch index 16. The discriminator keeps the stated lr=2e-4,
+receives no warmup, and receives the same one-time decay.
 
-Source-faithful restorations
-============================
-  1. pretrain_eps = 15  → first 15 epochs use lambda_adv = 0.0005 (weak adv.)
-  2. 5:1 G:D step ratio during pretrain; 1:1 cycle post-pretrain
-  3. d_loss / 2 and g_loss / 2  (source halves both; paper Eq.1/Eq.2 do not)
-  4. adjust_weight: cap lambda_adv at 0.01, floor 0.0001, only after pretrain
-  5. discriminator_optimizer lr = self.learning_rate * 0.01 (dynamic, halves
-     with StepLR)
-  6. Source's per-step state-machine counters (d_step_counter / g_step_counter)
-     preserved verbatim including the reset conditions
-
-DDP-required deviations from source (cannot be avoided without re-debugging
-the deadlock root causes we already paid for)
-============================================
-  * HuBERT backbone frozen + `_ddp_params_and_buffers_to_ignore` set →
-    necessary because DDP find_unused_parameters traversal across HuBERT's
-    315M parameters deadlocks intermittently.
-  * Encoder forward inside no_grad for D step / inside toggle_optimizer for
-    M step → prevents stale all-reduce on encoder params when only D is
-    being updated (or vice versa).
-  * Discriminator forward uses a single concatenated call (real + fake in
-    one tensor) → keeps DDP's bucket reducer state consistent.
-  * Trainer: precision='16-mixed' (legacy precision=16 + manual_opt has known
-    rank-desync issues with gradient scaler).
+DDP guards retain separate optimizer toggling, a no-grad encoder pass for the
+discriminator update, one concatenated discriminator forward, and mixed
+precision through the current Lightning API.
 """
 from argparse import ArgumentParser
 import json
@@ -48,7 +25,6 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning import LightningModule, Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import StepLR
 
 from feature.build_feature import build_feature
 from functions.loader import super_dataset
@@ -65,6 +41,30 @@ from helper.gan_controls import (
 from scipy.interpolate import interp1d
 from sklearn.metrics import roc_curve
 from scipy.optimize import brentq
+
+
+def optimizer_learning_rate(
+    base_lr,
+    update_step,
+    warmup_steps,
+    current_epoch,
+    decay_after_epoch,
+    decay_gamma,
+):
+    """Return the pre-update LR with optional warmup and one epoch decay."""
+    warmup = 1.0
+    if warmup_steps:
+        warmup = min(
+            1.0,
+            float(update_step + 1) / float(max(1, warmup_steps)),
+        )
+    decay = (
+        float(decay_gamma)
+        if decay_after_epoch is not None
+        and int(current_epoch) >= int(decay_after_epoch)
+        else 1.0
+    )
+    return float(base_lr) * warmup * decay
 
 
 class Task(LightningModule):
@@ -119,6 +119,12 @@ class Task(LightningModule):
         self.gan_schedule = effective_gan_config["gan_schedule"]
         self.pretrain_epochs = effective_gan_config["pretrain_epochs"]
         self.pretrain_g_steps = effective_gan_config["pretrain_g_steps"]
+        self.register_buffer(
+            "main_update_count", torch.zeros((), dtype=torch.long)
+        )
+        self.register_buffer(
+            "discriminator_update_count", torch.zeros((), dtype=torch.long)
+        )
 
         # Validate controls before the first distributed forward.
         scheduled_updates(
@@ -187,9 +193,25 @@ class Task(LightningModule):
         d_loss = d_real_loss + d_fake_loss
 
         self.manual_backward(d_loss)
+        discriminator_lr = optimizer_learning_rate(
+            base_lr=self.discriminator_lr,
+            update_step=int(self.discriminator_update_count.item()),
+            warmup_steps=0,
+            current_epoch=self.current_epoch,
+            decay_after_epoch=self.config.get("lr_decay_after_epoch"),
+            decay_gamma=float(self.config.get("lr_decay_gamma", 1.0)),
+        )
+        for group in opt_d.param_groups:
+            group["lr"] = discriminator_lr
         opt_d.step()
+        self.discriminator_update_count.add_(1)
         self.untoggle_optimizer(opt_d)
         self.log('d_loss', d_loss, prog_bar=True, sync_dist=False)
+        self.log(
+            "discriminator_learning_rate",
+            discriminator_lr,
+            sync_dist=False,
+        )
         return d_loss
 
     def _g_step(self, opt_main, waveform, label, lambda_adv_value,
@@ -229,21 +251,26 @@ class Task(LightningModule):
                       + self.lambda_adv * g_loss)
 
         self.manual_backward(total_loss)
+        main_lr = optimizer_learning_rate(
+            base_lr=self.learning_rate,
+            update_step=int(self.main_update_count.item()),
+            warmup_steps=int(self.config.get("warmup_step", 2000)),
+            current_epoch=self.current_epoch,
+            decay_after_epoch=self.config.get("lr_decay_after_epoch"),
+            decay_gamma=float(self.config.get("lr_decay_gamma", 1.0)),
+        )
+        for group in opt_main.param_groups:
+            group["lr"] = main_lr
         opt_main.step()
+        self.main_update_count.add_(1)
         self.untoggle_optimizer(opt_main)
-
-        # Source's per-step warmup overwrite.
-        if self.trainer.global_step < self.config['warmup_step']:
-            lr_scale = min(1., (self.trainer.global_step + 1)
-                           / float(self.config['warmup_step']))
-            for pg in opt_main.param_groups:
-                pg['lr'] = lr_scale * self.learning_rate
 
         self.log('am_loss', amsoftmax_loss, prog_bar=True, sync_dist=False)
         self.log('am_loss_syn', amsoftmax_syn_loss, prog_bar=True, sync_dist=False)
         self.log('acc', acc, prog_bar=True, sync_dist=False)
         self.log('g_loss', g_loss, prog_bar=True, sync_dist=False)
         self.log('lambda_adv', float(self.lambda_adv), prog_bar=False, sync_dist=False)
+        self.log("model_learning_rate", main_lr, sync_dist=False)
         self.log('total_loss', total_loss, prog_bar=True, sync_dist=False)
         return total_loss
 
@@ -306,15 +333,7 @@ class Task(LightningModule):
             weight_decay=self.weight_decay,
             betas=(0.5, 0.999),
         )
-        embedding_scheduler = StepLR(embedding_optimizer, step_size=4, gamma=0.5)
-        discriminator_scheduler = StepLR(discriminator_optimizer, step_size=4, gamma=0.5)
-        return ([embedding_optimizer, discriminator_optimizer],
-                [embedding_scheduler, discriminator_scheduler])
-
-    def on_train_epoch_end(self):
-        main_scheduler, d_scheduler = self.lr_schedulers()
-        main_scheduler.step()
-        d_scheduler.step()
+        return [embedding_optimizer, discriminator_optimizer]
 
     def on_test_epoch_start(self):
         return self.on_validation_epoch_start()
@@ -480,7 +499,7 @@ def cli_main():
         max_epochs=config['epochs'],
         logger=False,
         num_sanity_val_steps=0,
-        sync_batchnorm=True,
+        sync_batchnorm=bool(config.get("sync_batchnorm", False)),
         precision="16-mixed",
         callbacks=[] if smoke_mode else [checkpoint_callback],
         enable_checkpointing=not smoke_mode,

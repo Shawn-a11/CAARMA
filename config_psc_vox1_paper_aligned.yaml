@@ -9,17 +9,19 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/caarma_paper_aligned_vox1/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/table2_id6_full309_lr2e3_decay_e16/checkpoints"
 hubert_cache_dir: "${CAARMA_HUBERT_CACHE}"
 hubert_model_name: "facebook/hubert-large-ls960-ft"
 
 USE_WANDB: false
 criterion: "AMSoftmaxGAN"
-init_lr: 0.001
+init_lr: 0.002
 discriminator_lr: 0.0002
 epochs: 30
 weight_decay: 0.0000001
 warmup_step: 2000
+lr_decay_after_epoch: 16
+lr_decay_gamma: 0.5
 batch_size: 50
 num_workers: 4
 second: 3
@@ -44,5 +46,9 @@ save_top_k: 3
 devices: 4
 num_nodes: 1
 precision: "16-mixed"
+sync_batchnorm: false
 seed: 42
-title: "caarma_paper_aligned_vox1_psc"
+control_result_job: 44671054
+previous_full_result_job: 44075531
+tuning_protocol: "lr2e3_warmup2000_single_decay_e16"
+title: "table2_id6_full309_lr2e3_decay_e16_psc"
