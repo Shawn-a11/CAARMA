@@ -9,7 +9,7 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/mfa_job44607056_lr2e3_decay_after_e16/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/mfa_job44607056_lr2e3_decay_after_e16_ncclfix1/checkpoints"
 
 USE_WANDB: false
 criterion: "AMSoftmax"
@@ -39,4 +39,4 @@ fixed_control_job: 44493754
 parent_result_job: 44607056
 tuning_axis: "lr2e3_single_decay_epoch"
 tuning_value: 16
-title: "mfa_job44607056_lr2e3_decay_after_e16"
+title: "mfa_job44607056_lr2e3_decay_after_e16_ncclfix1"
