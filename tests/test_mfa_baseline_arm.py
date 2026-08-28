@@ -22,12 +22,14 @@ class MfaBaselineArmTest(unittest.TestCase):
         self.assertEqual(config['criterion'], 'AMSoftmax')
         self.assertFalse(config['mixup'])
         self.assertFalse(config['do_augmentation'])
-        if tuning_axis == 'am_margin':
+        if tuning_axis in {'am_margin', 'lr2e3_am_margin'}:
             self.assertEqual(config['am_margin'], tuning_value)
         else:
             self.assertEqual(config['am_margin'], 0.2)
         if tuning_axis == 'init_lr':
             self.assertEqual(config['init_lr'], tuning_value)
+        elif tuning_axis == 'lr2e3_am_margin':
+            self.assertEqual(config['init_lr'], 0.002)
         else:
             self.assertEqual(config['init_lr'], 0.001)
         self.assertEqual(config['am_scale'], 30)

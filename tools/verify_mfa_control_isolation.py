@@ -49,7 +49,9 @@ def _require(condition: bool, message: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--axis", choices=("control", "init_lr", "am_margin"), required=True
+        "--axis",
+        choices=("control", "init_lr", "am_margin", "lr2e3_am_margin"),
+        required=True,
     )
     parser.add_argument("--value", type=float)
     args = parser.parse_args()
@@ -90,8 +92,18 @@ def main() -> None:
     _require("lr_scheduler_step_size" not in config, "StepLR step_size is prohibited")
     _require("lr_scheduler_gamma" not in config, "StepLR gamma is prohibited")
 
-    expected_lr = args.value if args.axis == "init_lr" else 0.001
-    expected_margin = args.value if args.axis == "am_margin" else 0.2
+    expected_lr = (
+        args.value
+        if args.axis == "init_lr"
+        else 0.002
+        if args.axis == "lr2e3_am_margin"
+        else 0.001
+    )
+    expected_margin = (
+        args.value
+        if args.axis in {"am_margin", "lr2e3_am_margin"}
+        else 0.2
+    )
     _require(config.get("init_lr") == expected_lr, "unexpected init_lr change")
     _require(config.get("am_margin") == expected_margin, "unexpected am_margin change")
     _require(config.get("tuning_axis", "control") == args.axis, "tuning_axis mismatch")
