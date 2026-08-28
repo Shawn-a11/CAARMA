@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=cis220031p
-#SBATCH --job-name=mfa-lr2e3-fix
+#SBATCH --job-name=mfa-2e3-dec16
 #SBATCH --partition=GPU-shared
 #SBATCH --gpus=v100-32:4
 #SBATCH --exclude=v008,v010
@@ -25,7 +25,12 @@ test -f config_psc_vox1_mfa_baseline.yaml
 test -f "$CAARMA_TRAIN_MANIFEST"
 test -f "$CAARMA_TRIAL_PATH"
 test -d "$CAARMA_VOX1_EVAL_ROOT"
-mkdir -p "$CAARMA_RUN_ROOT/mfa_job44493754_lr2e3/checkpoints"
+RUN_DIR="$CAARMA_RUN_ROOT/mfa_job44607056_lr2e3_decay_after_e16"
+test ! -e "$RUN_DIR" || {
+  echo "Refusing to overwrite existing run directory: $RUN_DIR" >&2
+  exit 1
+}
+mkdir -p "$RUN_DIR/checkpoints"
 
 export OMP_NUM_THREADS=4
 export TOKENIZERS_PARALLELISM=false
@@ -35,9 +40,11 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 echo "CAARMA job repo: $REPO_ROOT"
 echo "CAARMA method commit: ${CAARMA_METHOD_COMMIT:-archive-snapshot}"
 echo "Paper control: Table 2 ID1, clean MFA-Conformer + real AM-Softmax only"
+echo "Parent result: Job 44607056 (init_lr=2e-3, best EER 3.40%)"
+echo "Schedule arm: one-time 0.5x LR decay after display Epoch 16"
 echo "Batch semantics: 50 samples per GPU, 4 GPUs, global batch 200"
-echo "Schedule: 2000-step linear warmup, then constant learning rate"
-python tools/verify_mfa_control_isolation.py --axis init_lr --value 0.002
+echo "Schedule: 2000-step linear warmup, constant LR through Epoch 16, then one 0.5x decay"
+python tools/verify_mfa_control_isolation.py --axis lr2e3_single_decay_epoch --value 16
 srun python -u train_mfa_baseline.py \
   --config config_psc_vox1_mfa_baseline.yaml \
   --devices 4

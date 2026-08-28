@@ -10,8 +10,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTROL_TRAIN_SHA256 = (
-    "18f296baf0cae333c6a7b1ddd10186bf1a00ead1b36a6c94d12a4997d9eff804"
+SINGLE_DECAY_TRAIN_SHA256 = (
+    "2cab9259cfc5ec1c4c6c10728444ed1467925246a1b5c7702aaa5964925f933b"
 )
 
 
@@ -49,7 +49,14 @@ def _require(condition: bool, message: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--axis", choices=("control", "init_lr", "am_margin"), required=True
+        "--axis",
+        choices=(
+            "control",
+            "init_lr",
+            "am_margin",
+            "lr2e3_single_decay_epoch",
+        ),
+        required=True,
     )
     parser.add_argument("--value", type=float)
     args = parser.parse_args()
@@ -61,8 +68,8 @@ def main() -> None:
     slurm_path = ROOT / "scripts/psc/train_vox1_mfa_baseline.slurm"
     train_hash = hashlib.sha256(train_path.read_bytes()).hexdigest()
     _require(
-        train_hash == CONTROL_TRAIN_SHA256,
-        f"train entrypoint changed ({train_hash}); expected {CONTROL_TRAIN_SHA256}",
+        train_hash == SINGLE_DECAY_TRAIN_SHA256,
+        f"train entrypoint changed ({train_hash}); expected {SINGLE_DECAY_TRAIN_SHA256}",
     )
 
     config = _read_top_level_yaml(config_path)
@@ -88,12 +95,23 @@ def main() -> None:
     for key, expected in invariants.items():
         _require(config.get(key) == expected, f"{key}={config.get(key)!r}, expected {expected!r}")
     _require("lr_scheduler_step_size" not in config, "StepLR step_size is prohibited")
-    _require("lr_scheduler_gamma" not in config, "StepLR gamma is prohibited")
 
-    expected_lr = args.value if args.axis == "init_lr" else 0.001
+    expected_lr = (
+        args.value
+        if args.axis == "init_lr"
+        else 0.002
+        if args.axis == "lr2e3_single_decay_epoch"
+        else 0.001
+    )
     expected_margin = args.value if args.axis == "am_margin" else 0.2
     _require(config.get("init_lr") == expected_lr, "unexpected init_lr change")
     _require(config.get("am_margin") == expected_margin, "unexpected am_margin change")
+    if args.axis == "lr2e3_single_decay_epoch":
+        _require(config.get("lr_decay_after_epoch") == 16, "decay epoch must be 16")
+        _require(config.get("lr_decay_gamma") == 0.5, "decay gamma must be 0.5")
+    else:
+        _require("lr_decay_after_epoch" not in config, "unexpected decay epoch")
+        _require("lr_decay_gamma" not in config, "unexpected decay gamma")
     _require(config.get("tuning_axis", "control") == args.axis, "tuning_axis mismatch")
     if args.axis != "control":
         _require(config.get("tuning_value") == args.value, "tuning_value mismatch")

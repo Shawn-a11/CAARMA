@@ -6,6 +6,7 @@ import torch
 import yaml
 
 from criterion.amsoftmax import amsoftmax
+from train_mfa_baseline import warmup_then_single_decay_multiplier
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,8 @@ class MfaBaselineArmTest(unittest.TestCase):
             self.assertEqual(config['am_margin'], 0.2)
         if tuning_axis == 'init_lr':
             self.assertEqual(config['init_lr'], tuning_value)
+        elif tuning_axis == 'lr2e3_single_decay_epoch':
+            self.assertEqual(config['init_lr'], 0.002)
         else:
             self.assertEqual(config['init_lr'], 0.001)
         self.assertEqual(config['am_scale'], 30)
@@ -35,7 +38,26 @@ class MfaBaselineArmTest(unittest.TestCase):
         self.assertEqual(config['warmup_step'], 2000)
         self.assertFalse(config['sync_batchnorm'])
         self.assertNotIn('lr_scheduler_step_size', config)
-        self.assertNotIn('lr_scheduler_gamma', config)
+        if tuning_axis == 'lr2e3_single_decay_epoch':
+            self.assertEqual(config['lr_decay_after_epoch'], 16)
+            self.assertEqual(config['lr_decay_gamma'], 0.5)
+        else:
+            self.assertNotIn('lr_decay_gamma', config)
+
+    def test_single_decay_happens_once_after_display_epoch_16(self):
+        args = dict(step=3000, warmup_steps=2000, decay_after_epoch=16, decay_gamma=0.5)
+        self.assertEqual(
+            warmup_then_single_decay_multiplier(current_epoch=15, **args),
+            1.0,
+        )
+        self.assertEqual(
+            warmup_then_single_decay_multiplier(current_epoch=16, **args),
+            0.5,
+        )
+        self.assertEqual(
+            warmup_then_single_decay_multiplier(current_epoch=29, **args),
+            0.5,
+        )
 
     def test_optimizer_matches_job_44493754_control(self):
         source = (ROOT / 'train_mfa_baseline.py').read_text()
@@ -46,6 +68,7 @@ class MfaBaselineArmTest(unittest.TestCase):
         self.assertNotIn('automatic_optimization = False', source)
         self.assertNotIn('manual_backward', source)
         self.assertNotIn('def on_train_epoch_end', source)
+        self.assertIn('def on_train_epoch_start', source)
         self.assertIn(
             "sync_batchnorm=bool(config.get('sync_batchnorm', False))",
             source,

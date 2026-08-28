@@ -9,7 +9,7 @@ augmentations:
 dataset: "${CAARMA_TRAIN_MANIFEST}"
 trial_path: "${CAARMA_TRIAL_PATH}"
 root: "${CAARMA_VOX1_EVAL_ROOT}"
-save_dir: "${CAARMA_RUN_ROOT}/mfa_job44493754_lr2e3/checkpoints"
+save_dir: "${CAARMA_RUN_ROOT}/mfa_job44607056_lr2e3_decay_after_e16/checkpoints"
 
 USE_WANDB: false
 criterion: "AMSoftmax"
@@ -17,6 +17,8 @@ init_lr: 0.002
 epochs: 30
 weight_decay: 0.0000001
 warmup_step: 2000
+lr_decay_after_epoch: 16
+lr_decay_gamma: 0.5
 batch_size: 50
 num_workers: 4
 second: 3
@@ -34,6 +36,7 @@ precision: "16-mixed"
 sync_batchnorm: false
 seed: 42
 fixed_control_job: 44493754
-tuning_axis: "init_lr"
-tuning_value: 0.002
-title: "mfa_job44493754_locked_lr2e3"
+parent_result_job: 44607056
+tuning_axis: "lr2e3_single_decay_epoch"
+tuning_value: 16
+title: "mfa_job44607056_lr2e3_decay_after_e16"
