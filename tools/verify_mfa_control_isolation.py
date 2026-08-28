@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTROL_TRAIN_SHA256 = (
     "18f296baf0cae333c6a7b1ddd10186bf1a00ead1b36a6c94d12a4997d9eff804"
 )
+NCCL_PREFLIGHT_SHA256 = (
+    "a57910753a909a146ec93d90326650322024afd2ea2872ebd6fc85d2f0811c9c"
+)
 
 
 def _scalar(value: str):
@@ -59,12 +62,18 @@ def main() -> None:
         parser.error("--value is required for a tuning arm")
 
     train_path = ROOT / "train_mfa_baseline.py"
+    preflight_path = ROOT / "tools/verify_nccl_allreduce.py"
     config_path = ROOT / "config_psc_vox1_mfa_baseline.yaml"
     slurm_path = ROOT / "scripts/psc/train_vox1_mfa_baseline.slurm"
     train_hash = hashlib.sha256(train_path.read_bytes()).hexdigest()
     _require(
         train_hash == CONTROL_TRAIN_SHA256,
         f"train entrypoint changed ({train_hash}); expected {CONTROL_TRAIN_SHA256}",
+    )
+    preflight_hash = hashlib.sha256(preflight_path.read_bytes()).hexdigest()
+    _require(
+        preflight_hash == NCCL_PREFLIGHT_SHA256,
+        f"NCCL preflight changed ({preflight_hash}); expected {NCCL_PREFLIGHT_SHA256}",
     )
 
     config = _read_top_level_yaml(config_path)
@@ -115,8 +124,15 @@ def main() -> None:
     for required in (
         "#SBATCH --partition=GPU-shared",
         "#SBATCH --gpus=v100-32:4",
-        "#SBATCH --exclude=v008,v010",
+        "#SBATCH --exclude=v003,v007,v008,v010",
         "#SBATCH --ntasks-per-node=4",
+        "NCCL_P2P_DISABLE=1",
+        "NCCL_IB_DISABLE=1",
+        "TORCH_NCCL_ASYNC_ERROR_HANDLING=1",
+        "TORCH_NCCL_BLOCKING_WAIT=1",
+        "tools/verify_nccl_allreduce.py",
+        "--numel 19991936",
+        "--timeout-seconds 180",
         "train_mfa_baseline.py",
     ):
         _require(required in slurm, f"launcher missing {required}")
