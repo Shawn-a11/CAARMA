@@ -27,6 +27,24 @@ from helper.config_utils import load_experiment_config
 from model.model_build import build_model
 
 
+def warmup_then_single_decay_multiplier(
+    step,
+    warmup_steps,
+    current_epoch,
+    decay_after_epoch,
+    decay_gamma,
+):
+    """Warm up per update, then retain one epoch-triggered LR decay."""
+    warmup = min(1.0, float(step + 1) / float(max(1, warmup_steps)))
+    if decay_after_epoch is None:
+        return warmup
+    return warmup * (
+        float(decay_gamma)
+        if int(current_epoch) >= int(decay_after_epoch)
+        else 1.0
+    )
+
+
 class Task(LightningModule):
     def __init__(
         self,
@@ -104,6 +122,14 @@ class Task(LightningModule):
         )
         return total_loss
 
+    def on_train_epoch_start(self):
+        decay_after_epoch = self.config.get('lr_decay_after_epoch')
+        if decay_after_epoch is None or self.current_epoch != int(decay_after_epoch):
+            return
+        decay_gamma = float(self.config.get('lr_decay_gamma', 1.0))
+        for param_group in self.trainer.optimizers[0].param_groups:
+            param_group['lr'] = self.learning_rate * decay_gamma
+
     def configure_optimizers(self):
         optimizer = AdamW(
             list(self.model.parameters()) + list(self.loss.parameters()),
@@ -112,10 +138,16 @@ class Task(LightningModule):
             betas=(0.9, 0.999),
         )
         warmup_steps = max(1, int(self.config.get('warmup_step', 2000)))
+        decay_after_epoch = self.config.get('lr_decay_after_epoch')
+        decay_gamma = float(self.config.get('lr_decay_gamma', 1.0))
         scheduler = LambdaLR(
             optimizer,
-            lr_lambda=lambda step: min(
-                1.0, float(step + 1) / float(warmup_steps)
+            lr_lambda=lambda step: warmup_then_single_decay_multiplier(
+                step=step,
+                warmup_steps=warmup_steps,
+                current_epoch=self.current_epoch,
+                decay_after_epoch=decay_after_epoch,
+                decay_gamma=decay_gamma,
             ),
         )
         return {
